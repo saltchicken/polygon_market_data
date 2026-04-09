@@ -16,6 +16,14 @@ CREATE TABLE daily_market_data (
     CONSTRAINT pk_ticker_date PRIMARY KEY (ticker, market_date)
 );
 
+CREATE TABLE daily_indicators (
+    ticker VARCHAR(20),
+    market_date DATE,
+    atr_14 NUMERIC,
+    
+    CONSTRAINT pk_ticker_indicator_date PRIMARY KEY (ticker, market_date)
+);
+
 -- Create an index on the market_date to dramatically speed up 
 -- queries where you filter by a specific day (e.g., WHERE market_date = '2026-04-03')
 -- CREATE INDEX idx_daily_market_data_date ON daily_market_data(market_date);
