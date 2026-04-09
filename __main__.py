@@ -1,69 +1,38 @@
-# Prerequisites:
-# pip install requests polygon-api-client
-
-import requests
+import os
 from polygon import RESTClient
+from dotenv import load_dotenv
 
 
-# ==========================================
-# METHOD 1: Using the standard 'requests' library
-# ==========================================
-def get_ohlcv_with_requests(ticker, date, api_key):
+def get_multiple_ohlcv_with_client(tickers, date, api_key):
     """
-    Fetches daily OHLCV using the raw REST API endpoint.
-    """
-    # The Daily Open/Close Endpoint
-    url = f"https://api.polygon.io/v1/open-close/{ticker}/{date}?adjusted=true&apiKey={api_key}"
-
-    try:
-        response = requests.get(url)
-        response.raise_for_status()  # Check for HTTP errors
-        data = response.json()
-
-        print(f"\n--- [Requests Method] OHLCV for {ticker} on {date} ---")
-        print(f"Open:   ${data.get('open')}")
-        print(f"High:   ${data.get('high')}")
-        print(f"Low:    ${data.get('low')}")
-        print(f"Close:  ${data.get('close')}")
-        print(f"Volume: {data.get('volume'):,}")
-
-        return data
-
-    except requests.exceptions.RequestException as e:
-        print(f"API Error: {e}")
-        # A 404 error usually means the market was closed on that day (e.g., weekend/holiday)
-        if (
-            hasattr(e, "response")
-            and e.response is not None
-            and e.response.status_code == 404
-        ):
-            print(
-                "Note: The market may have been closed on this date, or the ticker is invalid."
-            )
-        return None
-
-
-# ==========================================
-# METHOD 2: Using the Official Polygon Python Client
-# ==========================================
-def get_ohlcv_with_client(ticker, date, api_key):
-    """
-    Fetches daily OHLCV using the official polygon-api-client library.
+    Fetches daily OHLCV for multiple tickers using the official polygon-api-client library.
+    Uses the Grouped Daily endpoint to get data for all stocks in a single API call,
+    which is highly efficient and avoids rate limits.
     """
     client = RESTClient(api_key)
 
     try:
-        # Calls the Daily Open/Close endpoint automatically
-        data = client.get_daily_open_close_agg(ticker, date)
+        print(f"Fetching market data from Polygon for {date}...")
+        # Make ONE call to get all stocks for the given date
+        all_market_data = client.get_grouped_daily_aggs(date)
 
-        print(f"\n--- [Polygon Client Method] OHLCV for {ticker} on {date} ---")
-        print(f"Open:   ${data.open}")
-        print(f"High:   ${data.high}")
-        print(f"Low:    ${data.low}")
-        print(f"Close:  ${data.close}")
-        print(f"Volume: {data.volume:,}")
+        # Filter the results locally for the specific stocks requested
+        my_data = [stock for stock in all_market_data if stock.ticker in tickers]
 
-        return data
+        if not my_data:
+            print(f"\nNo data found for the requested tickers on {date}.")
+            return []
+
+        print(f"\n--- OHLCV Data on {date} ---")
+        for stock in my_data:
+            print(f"\n[{stock.ticker}]")
+            print(f"Open:   ${stock.open}")
+            print(f"High:   ${stock.high}")
+            print(f"Low:    ${stock.low}")
+            print(f"Close:  ${stock.close}")
+            print(f"Volume: {stock.volume:,}")
+
+        return my_data
 
     except Exception as e:
         print(f"Client Error: {e}")
@@ -71,19 +40,18 @@ def get_ohlcv_with_client(ticker, date, api_key):
 
 
 if __name__ == "__main__":
-    # 1. Get your free API key at https://polygon.io/dashboard
-    # 2. Replace 'YOUR_API_KEY' with your actual key
-    API_KEY = "YOUR_API_KEY"
+    # Load environment variables from the .env file
+    load_dotenv()
+    API_KEY = os.getenv("POLYGON_API_KEY")
 
-    # Target Stock and Date (Format MUST be YYYY-MM-DD)
-    TARGET_TICKER = "AAPL"
-    TARGET_DATE = "2024-04-05"
+    # Target Stocks and Date (Format MUST be YYYY-MM-DD)
+    TARGET_TICKERS = ["AAPL", "MSFT", "TSLA"]
+    TARGET_DATE = "2025-04-07"
 
-    if API_KEY == "YOUR_API_KEY":
-        print("Please replace 'YOUR_API_KEY' with your actual Polygon.io API key.")
+    if not API_KEY:
+        print("Error: 'POLYGON_API_KEY' not found.")
+        print(
+            "Please create a .env file in the same directory and add: POLYGON_API_KEY=your_actual_api_key_here"
+        )
     else:
-        # Run Method 1
-        get_ohlcv_with_requests(TARGET_TICKER, TARGET_DATE, API_KEY)
-
-        # Run Method 2
-        get_ohlcv_with_client(TARGET_TICKER, TARGET_DATE, API_KEY)
+        get_multiple_ohlcv_with_client(TARGET_TICKERS, TARGET_DATE, API_KEY)
