@@ -109,7 +109,6 @@ if __name__ == "__main__":
     API_KEY = os.getenv("POLYGON_API_KEY")
     DB_URL = os.getenv("DB_URL")
 
-    # Dynamically get the current date in YYYY-MM-DD format
     TARGET_DATE = datetime.today().strftime('%Y-%m-%d')
 
     RESET_DATABASE = False
