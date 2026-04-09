@@ -127,6 +127,28 @@ def run_elt_pipeline(target_date, db_url):
     except Exception as e:
         print(f"ELT Pipeline Error: {e}")
 
+def fetch_and_upload(target_date, db_url):
+    # 1. Fetch Market Data
+    entire_market_data = get_entire_market_ohlcv(target_date, API_KEY)
+
+    if entire_market_data is not None and not entire_market_data.empty:
+        # We explicitly add the trading day date as a column.
+        entire_market_data["market_date"] = pd.to_datetime(target_date).date()
+
+        print("\nPreview of DataFrame:")
+        print(entire_market_data.head())
+        print(f"\nDataFrame Shape: {entire_market_data.shape}")
+
+        # 2. Upload Raw Market Data
+        upload_to_postgres(
+            df=entire_market_data, table_name="daily_market_data", db_url=db_url
+        )
+
+    else:
+        print(f"No market data found for {target_date}.")
+
+
+
 
 if __name__ == "__main__":
     load_dotenv()
@@ -134,7 +156,7 @@ if __name__ == "__main__":
     DB_URL = os.getenv("DB_URL")
 
     # TARGET_DATE = datetime.today().strftime('%Y-%m-%d')
-    TARGET_DATE = '2026-04-02'
+    TARGET_DATE = '2026-03-31'
 
     RESET_DATABASE = False
 
@@ -157,24 +179,6 @@ if __name__ == "__main__":
         print("\n--- Starting Database Reset ---")
         init_database(DB_URL)
 
-    # 1. Fetch Data
-    entire_market_data = get_entire_market_ohlcv(TARGET_DATE, API_KEY)
+    fetch_and_upload(TARGET_DATE, DB_URL)
+    run_elt_pipeline(TARGET_DATE, DB_URL)
 
-    if entire_market_data is not None and not entire_market_data.empty:
-        # We explicitly add the trading day date as a column.
-        entire_market_data["market_date"] = pd.to_datetime(TARGET_DATE).date()
-
-        print("\nPreview of DataFrame:")
-        print(entire_market_data.head())
-        print(f"\nDataFrame Shape: {entire_market_data.shape}")
-
-        # 2. Upload Raw Market Data
-        upload_to_postgres(
-            df=entire_market_data, table_name="daily_market_data", db_url=DB_URL
-        )
-
-        # 3. Run ELT pipeline to calculate Indicators (ATR)
-        run_elt_pipeline(TARGET_DATE, DB_URL)
-        
-    else:
-        print(f"No market data found for {TARGET_DATE}.")
