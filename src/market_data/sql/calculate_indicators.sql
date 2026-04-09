@@ -26,17 +26,33 @@ indicator_calc AS (
         ticker,
         market_date,
         -- Calculate a 14-day moving average of the True Range
-        AVG(true_range) OVER (
-            PARTITION BY ticker 
-            ORDER BY market_date 
-            ROWS BETWEEN 13 PRECEDING AND CURRENT ROW
-        ) AS atr_14,
+        CASE
+            WHEN COUNT(true_range) OVER (
+                PARTITION BY ticker 
+                ORDER BY market_date 
+                ROWS BETWEEN 13 PRECEDING AND CURRENT ROW
+            ) >= 14
+            THEN AVG(true_range) OVER (
+                PARTITION BY ticker 
+                ORDER BY market_date 
+                ROWS BETWEEN 13 PRECEDING AND CURRENT ROW
+            )
+            ELSE NULL
+        END AS atr_14,
         -- Calculate a 50-day Simple Moving Average
-        AVG(close) OVER (
-            PARTITION BY ticker 
-            ORDER BY market_date 
-            ROWS BETWEEN 49 PRECEDING AND CURRENT ROW
-        ) AS sma_50
+        CASE
+            WHEN COUNT(close) OVER (
+                PARTITION BY ticker 
+                ORDER BY market_date 
+                ROWS BETWEEN 49 PRECEDING AND CURRENT ROW
+            ) >= 50
+            THEN AVG(close) OVER (
+                PARTITION BY ticker 
+                ORDER BY market_date 
+                ROWS BETWEEN 49 PRECEDING AND CURRENT ROW
+            )
+            ELSE NULL
+        END AS sma_50
     FROM true_range_calc
 )
 -- Finally, insert ONLY the target date into our running indicators table
