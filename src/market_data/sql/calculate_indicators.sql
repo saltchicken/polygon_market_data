@@ -20,7 +20,7 @@ true_range_calc AS (
         ) AS true_range
     FROM raw_data
 ),
-atr_calc AS (
+indicator_calc AS (
     -- Calculate the Average True Range
     SELECT 
         ticker,
@@ -42,7 +42,7 @@ atr_calc AS (
 -- Finally, insert ONLY the target date into our running indicators table
 INSERT INTO daily_indicators (ticker, market_date, atr_14, sma_50)
 SELECT ticker, market_date, atr_14, sma_50
-FROM atr_calc
+FROM indicator_calc
 WHERE market_date = CAST(:target_date AS DATE) 
   AND (atr_14 IS NOT NULL OR sma_50 IS NOT NULL)
 -- If run twice on the same day, update instead of duplicating

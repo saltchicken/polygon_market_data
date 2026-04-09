@@ -106,9 +106,9 @@ def upload_to_postgres(df, table_name, db_url):
 
 def run_elt_pipeline(target_date, db_url):
     """
-    Executes the ELT SQL script to calculate indicators (like ATR) directly in the database.
+    Executes the ELT SQL script to calculate indicators directly in the database.
     """
-    sql_file_path = os.path.join(os.path.dirname(__file__), "sql", "calculate_atr.sql")
+    sql_file_path = os.path.join(os.path.dirname(__file__), "sql", "calculate_indicators.sql")
 
     if not os.path.exists(sql_file_path):
         print(f"Error: SQL file not found at {sql_file_path}")
@@ -156,7 +156,7 @@ if __name__ == "__main__":
     DB_URL = os.getenv("DB_URL")
 
     # TARGET_DATE = datetime.today().strftime('%Y-%m-%d')
-    TARGET_DATE = "2026-04-06"
+    TARGET_DATE = "2026-04-02"
 
     RESET_DATABASE = False
 
