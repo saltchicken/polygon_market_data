@@ -1,6 +1,7 @@
 import os
 import sys
 import pandas as pd
+from datetime import datetime
 from polygon import RESTClient
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
@@ -108,7 +109,8 @@ if __name__ == "__main__":
     API_KEY = os.getenv("POLYGON_API_KEY")
     DB_URL = os.getenv("DB_URL")
 
-    TARGET_DATE = "2026-04-07"
+    # Dynamically get the current date in YYYY-MM-DD format
+    TARGET_DATE = datetime.today().strftime('%Y-%m-%d')
 
     RESET_DATABASE = False
 
