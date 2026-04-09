@@ -129,9 +129,9 @@ def run_elt_pipeline(target_date, db_url):
         print(f"ELT Pipeline Error: {e}")
 
 
-def fetch_and_upload(target_date, db_url):
+def fetch_and_upload(target_date, db_url, api_key):
     # 1. Fetch Market Data
-    entire_market_data = get_entire_market_ohlcv(target_date, API_KEY)
+    entire_market_data = get_entire_market_ohlcv(target_date, api_key)
 
     if entire_market_data is not None and not entire_market_data.empty:
         # We explicitly add the trading day date as a column.
@@ -156,7 +156,7 @@ if __name__ == "__main__":
     DB_URL = os.getenv("DB_URL")
 
     # TARGET_DATE = datetime.today().strftime('%Y-%m-%d')
-    TARGET_DATE = "2026-03-31"
+    TARGET_DATE = "2026-04-06"
 
     RESET_DATABASE = False
 
@@ -179,5 +179,5 @@ if __name__ == "__main__":
         print("\n--- Starting Database Reset ---")
         init_database(DB_URL)
 
-    fetch_and_upload(TARGET_DATE, DB_URL)
+    fetch_and_upload(TARGET_DATE, DB_URL, API_KEY)
     run_elt_pipeline(TARGET_DATE, DB_URL)
