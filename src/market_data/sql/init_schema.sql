@@ -1,4 +1,5 @@
 DROP TABLE IF EXISTS daily_market_data CASCADE;
+DROP TABLE IF EXISTS daily_indicators CASCADE;
 
 CREATE TABLE daily_market_data (
     ticker TEXT NOT NULL,
@@ -20,7 +21,8 @@ CREATE TABLE daily_indicators (
     ticker VARCHAR(20),
     market_date DATE,
     atr_14 NUMERIC,
-    
+    sma_50 NUMERIC,
+
     CONSTRAINT pk_ticker_indicator_date PRIMARY KEY (ticker, market_date)
 );
 
