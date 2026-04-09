@@ -103,13 +103,38 @@ def upload_to_postgres(df, table_name, db_url):
     except Exception as e:
         print(f"\nDatabase Upload Error: {e}")
 
+def run_elt_pipeline(target_date, db_url):
+    """
+    Executes the ELT SQL script to calculate indicators (like ATR) directly in the database.
+    """
+    sql_file_path = os.path.join(os.path.dirname(__file__), "sql", "calculate_atr.sql")
+
+    if not os.path.exists(sql_file_path):
+        print(f"Error: SQL file not found at {sql_file_path}")
+        return
+
+    try:
+        print(f"\nRunning ELT pipeline to calculate indicators for {target_date}...")
+        engine = create_engine(db_url)
+        with engine.begin() as conn:
+            with open(sql_file_path, "r") as file:
+                sql_script = file.read()
+                
+                # Execute the SQL script, passing the target date to the bind parameter
+                conn.execute(text(sql_script), {"target_date": target_date})
+                
+        print("Successfully calculated and inserted daily indicators!")
+    except Exception as e:
+        print(f"ELT Pipeline Error: {e}")
+
 
 if __name__ == "__main__":
     load_dotenv()
     API_KEY = os.getenv("POLYGON_API_KEY")
     DB_URL = os.getenv("DB_URL")
 
-    TARGET_DATE = datetime.today().strftime('%Y-%m-%d')
+    # TARGET_DATE = datetime.today().strftime('%Y-%m-%d')
+    TARGET_DATE = '2026-04-02'
 
     RESET_DATABASE = False
 
@@ -143,9 +168,13 @@ if __name__ == "__main__":
         print(entire_market_data.head())
         print(f"\nDataFrame Shape: {entire_market_data.shape}")
 
-        # 2. Upload Data
+        # 2. Upload Raw Market Data
         upload_to_postgres(
             df=entire_market_data, table_name="daily_market_data", db_url=DB_URL
         )
+
+        # 3. Run ELT pipeline to calculate Indicators (ATR)
+        run_elt_pipeline(TARGET_DATE, DB_URL)
+        
     else:
         print(f"No market data found for {TARGET_DATE}.")
