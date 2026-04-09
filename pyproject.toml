@@ -14,5 +14,9 @@ dependencies = [
     "polygon-api-client", 
     "python-dotenv",
     "pandas",
+    "sqlalchemy",
+    "psycopg2-binary",
 ]
 
+[tool.setuptools.package-data]
+"market_data" = ["sql/*.sql"]

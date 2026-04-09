@@ -1,7 +1,33 @@
 import os
+import sys
 import pandas as pd
 from polygon import RESTClient
 from dotenv import load_dotenv
+from sqlalchemy import create_engine, text
+from sqlalchemy.exc import IntegrityError
+
+
+def init_database(db_url):
+    """
+    Executes a SQL file to initialize the database schema.
+    WARNING: If using init_schema.sql, this will DROP the existing table.
+    """
+    sql_file_path = os.path.join(os.path.dirname(__file__), "sql", "init_schema.sql")
+
+    if not os.path.exists(sql_file_path):
+        print(f"Error: SQL file not found at {sql_file_path}")
+        return
+
+    try:
+        engine = create_engine(db_url)
+        with engine.begin() as conn:
+            with open(sql_file_path, "r") as file:
+                sql_script = file.read()
+                # Execute the SQL script
+                conn.execute(text(sql_script))
+        print(f"Successfully initialized database schema using {sql_file_path}")
+    except Exception as e:
+        print(f"Database Initialization Error: {e}")
 
 
 def get_entire_market_ohlcv(date, api_key):
@@ -16,7 +42,6 @@ def get_entire_market_ohlcv(date, api_key):
         all_market_data = client.get_grouped_daily_aggs(date)
 
         if not all_market_data:
-            print(f"\nNo market data found for {date}.")
             return None
 
         print(
@@ -54,21 +79,72 @@ def get_entire_market_ohlcv(date, api_key):
         return None
 
 
+def upload_to_postgres(df, table_name, db_url):
+    """
+    Uploads a pandas DataFrame to a PostgreSQL database.
+    """
+    try:
+        # Create SQLAlchemy engine
+        engine = create_engine(db_url)
+
+        print(f"\nUploading {len(df)} rows to PostgreSQL table '{table_name}'...")
+
+        # We strictly use 'append' now, assuming the table was properly created
+        # via the init_schema.sql script.
+        df.to_sql(name=table_name, con=engine, if_exists="append", index=False)
+
+        print("Upload successful!")
+
+    except IntegrityError:
+        print("\nUpload Failed: Duplicate entries detected.")
+        print("You have already uploaded data for this date and ticker combination.")
+        print("The Primary Key constraint successfully prevented duplicate rows.")
+    except Exception as e:
+        print(f"\nDatabase Upload Error: {e}")
+
+
 if __name__ == "__main__":
     load_dotenv()
     API_KEY = os.getenv("POLYGON_API_KEY")
+    DB_URL = os.getenv("DB_URL")
 
-    TARGET_DATE = "2025-04-07"
+    TARGET_DATE = "2026-04-07"
+
+    RESET_DATABASE = False
 
     if not API_KEY:
         print("Error: 'POLYGON_API_KEY' not found.")
         print(
-            "Please create a .env file in the same directory and add: POLYGON_API_KEY=your_actual_api_key_here"
+            "Please create a .env file and add: POLYGON_API_KEY=your_actual_api_key_here"
+        )
+        sys.exit(1)
+
+    if not DB_URL:
+        print("Error: 'DB_URL' not found.")
+        print(
+            "Please add to .env: DB_URL=postgresql://user:password@localhost:5432/your_db_name"
+        )
+        sys.exit(1)
+
+    # 0. Initialize Database (Optional step for starting over)
+    if RESET_DATABASE:
+        print("\n--- Starting Database Reset ---")
+        init_database(DB_URL)
+
+    # 1. Fetch Data
+    entire_market_data = get_entire_market_ohlcv(TARGET_DATE, API_KEY)
+
+    if entire_market_data is not None and not entire_market_data.empty:
+        # We explicitly add the trading day date as a column.
+        entire_market_data["market_date"] = pd.to_datetime(TARGET_DATE).date()
+
+        print("\nPreview of DataFrame:")
+        print(entire_market_data.head())
+        print(f"\nDataFrame Shape: {entire_market_data.shape}")
+
+        # 2. Upload Data
+        upload_to_postgres(
+            df=entire_market_data, table_name="daily_market_data", db_url=DB_URL
         )
     else:
-        entire_market_data = get_entire_market_ohlcv(TARGET_DATE, API_KEY)
-
-        if entire_market_data is not None and not entire_market_data.empty:
-            print("\nPreview of DataFrame:")
-            print(entire_market_data.head())
-            print(f"\nDataFrame Shape: {entire_market_data.shape}")
+        print(f"No market data found for {TARGET_DATE}.")
