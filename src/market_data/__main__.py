@@ -1,4 +1,5 @@
 import os
+import pandas as pd
 from polygon import RESTClient
 from dotenv import load_dotenv
 
@@ -16,13 +17,37 @@ def get_entire_market_ohlcv(date, api_key):
 
         if not all_market_data:
             print(f"\nNo market data found for {date}.")
-            return []
+            return None
 
         print(
             f"\n--- Successfully pulled {len(all_market_data)} tickers for {date} ---"
         )
 
-        return all_market_data
+        # Convert Polygon Agg objects into a list of dictionaries
+        data_dicts = []
+        for agg in all_market_data:
+            data_dicts.append(
+                {
+                    "ticker": getattr(agg, "ticker", None),
+                    "open": getattr(agg, "open", None),
+                    "high": getattr(agg, "high", None),
+                    "low": getattr(agg, "low", None),
+                    "close": getattr(agg, "close", None),
+                    "volume": getattr(agg, "volume", None),
+                    "vwap": getattr(agg, "vwap", None),
+                    "timestamp": getattr(agg, "timestamp", None),
+                    "transactions": getattr(agg, "transactions", None),
+                }
+            )
+
+        # Create and return the DataFrame
+        df = pd.DataFrame(data_dicts)
+
+        # Convert timestamp from unix milliseconds to datetime
+        if "timestamp" in df.columns:
+            df["datetime"] = pd.to_datetime(df["timestamp"], unit="ms")
+
+        return df
 
     except Exception as e:
         print(f"Client Error: {e}")
@@ -42,3 +67,8 @@ if __name__ == "__main__":
         )
     else:
         entire_market_data = get_entire_market_ohlcv(TARGET_DATE, API_KEY)
+
+        if entire_market_data is not None and not entire_market_data.empty:
+            print("\nPreview of DataFrame:")
+            print(entire_market_data.head())
+            print(f"\nDataFrame Shape: {entire_market_data.shape}")
