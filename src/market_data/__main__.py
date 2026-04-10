@@ -109,7 +109,9 @@ def run_elt_pipeline(target_date, db_url):
     """
     Executes the ELT SQL script to calculate indicators directly in the database.
     """
-    sql_file_path = os.path.join(os.path.dirname(__file__), "sql", "calculate_indicators.sql")
+    sql_file_path = os.path.join(
+        os.path.dirname(__file__), "sql", "calculate_indicators.sql"
+    )
 
     if not os.path.exists(sql_file_path):
         print(f"Error: SQL file not found at {sql_file_path}")
@@ -118,14 +120,26 @@ def run_elt_pipeline(target_date, db_url):
     try:
         print(f"\nRunning ELT pipeline to calculate indicators for {target_date}...")
         engine = create_engine(db_url)
+        affected_rows = 0
+
         with engine.begin() as conn:
             with open(sql_file_path, "r") as file:
                 sql_script = file.read()
 
                 # Execute the SQL script, passing the target date to the bind parameter
-                conn.execute(text(sql_script), {"target_date": target_date})
+                result = conn.execute(text(sql_script), {"target_date": target_date})
+                # Extract the rowcount before the transaction commits/closes
+                affected_rows = result.rowcount
 
-        print("Successfully calculated and inserted daily indicators!")
+        if affected_rows > 0:
+            print(
+                f"Successfully calculated and inserted/updated indicators for {affected_rows} tickers!"
+            )
+        else:
+            print(
+                "No new values were inserted or updated."
+            )
+
     except Exception as e:
         print(f"ELT Pipeline Error: {e}")
 
@@ -188,23 +202,26 @@ if __name__ == "__main__":
         # Generate a list of business days (Mon-Fri) to skip weekends
         dates_to_fetch = pd.bdate_range(start=start_date, end=end_date)
 
-        print(f"\n--- Starting 1-Year Backfill from {start_date.date()} to {end_date.date()} ---")
+        print(
+            f"\n--- Starting 1-Year Backfill from {start_date.date()} to {end_date.date()} ---"
+        )
         print(f"Total potential trading days to process: {len(dates_to_fetch)}")
 
         for date_obj in dates_to_fetch:
-            target_date = date_obj.strftime('%Y-%m-%d')
+            target_date = date_obj.strftime("%Y-%m-%d")
             print(f"\n=======================================================")
             print(f"Processing date: {target_date}")
             print(f"=======================================================")
-            
+
             fetch_and_upload(target_date, DB_URL, API_KEY)
             run_elt_pipeline(target_date, DB_URL)
-            
+
             print(f"Sleeping for 13 seconds to avoid rate limits...")
             time.sleep(13)
 
     else:
         # Standard daily run
-        TARGET_DATE = datetime.today().strftime('%Y-%m-%d')
+        TARGET_DATE = datetime.today().strftime("%Y-%m-%d")
+        TARGET_DATE = "2026-04-08"
         fetch_and_upload(TARGET_DATE, DB_URL, API_KEY)
         run_elt_pipeline(TARGET_DATE, DB_URL)

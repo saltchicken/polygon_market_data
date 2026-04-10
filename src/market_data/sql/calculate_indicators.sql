@@ -64,4 +64,6 @@ WHERE market_date = CAST(:target_date AS DATE)
 -- If run twice on the same day, update instead of duplicating
 ON CONFLICT (ticker, market_date) DO UPDATE 
 SET atr_14 = EXCLUDED.atr_14,
-    sma_50 = EXCLUDED.sma_50;
+    sma_50 = EXCLUDED.sma_50
+WHERE daily_indicators.atr_14 IS DISTINCT FROM EXCLUDED.atr_14
+   OR daily_indicators.sma_50 IS DISTINCT FROM EXCLUDED.sma_50;
