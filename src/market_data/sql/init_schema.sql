@@ -26,6 +26,7 @@ CREATE TABLE daily_indicators (
     atr_14_smoothed DOUBLE PRECISION,
     sma_50 DOUBLE PRECISION,
     sma_200 DOUBLE PRECISION,
+    rsi_14 DOUBLE PRECISION,
 
     -- Volume Baselines (The Denominators)
     vol_ema_5 DOUBLE PRECISION,

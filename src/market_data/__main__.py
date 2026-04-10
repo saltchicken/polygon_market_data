@@ -94,7 +94,7 @@ def fetch_and_upload(target_date, db_url, api_key):
 
 def run_python_indicator_pipeline(db_url, target_date=None):
     """
-    Calculates ATR, SMAs, EMAs, and RVOL entirely in Pandas.
+    Calculates ATR, SMAs, EMAs, RVOL, and RSI entirely in Pandas.
     If target_date is set, runs in Daily Mode. If None, runs in Bulk Reset Mode.
     """
     engine = create_engine(db_url)
@@ -187,8 +187,21 @@ def run_python_indicator_pipeline(db_url, target_date=None):
         .reset_index(level=0, drop=True)
         .round(2)
     )
+    
+    # --- 3. RSI Calculation (Wilder's Smoothing) ---
+    delta = df["close"] - df["prev_close"]
+    up = delta.clip(lower=0)
+    down = -1 * delta.clip(upper=0)
+    
+    roll_up = up.groupby(df['ticker']).ewm(alpha=1/14, min_periods=14, adjust=False).mean().reset_index(level=0, drop=True)
+    roll_down = down.groupby(df['ticker']).ewm(alpha=1/14, min_periods=14, adjust=False).mean().reset_index(level=0, drop=True)
+    
+    rs = roll_up / roll_down
+    df["rsi_14"] = 100.0 - (100.0 / (1.0 + rs))
+    # Handle the division-by-zero edge case where a stock only goes up for 14 days straight
+    df["rsi_14"] = df["rsi_14"].mask(roll_down == 0, 100.0).round(2)
 
-    # --- 3. RVOL Calculations ---
+    # --- 4. RVOL Calculations ---
     # Using replace(0, float('nan')) gracefully handles division-by-zero errors for halted/zero-volume days
     df["rvol_ema_5"] = (df["volume"] / df["vol_ema_5"].replace(0, float("nan"))).round(
         2
@@ -203,7 +216,7 @@ def run_python_indicator_pipeline(db_url, target_date=None):
         df["volume"] / df["vol_sma_60"].replace(0, float("nan"))
     ).round(2)
 
-    # --- 3.5 Attention Score Calculation ---
+    # --- 5. Attention Score Calculation ---
     # Weighted Multiplier: Prioritizes historical breakouts (60-day) while still requiring short-term volume
     df["attention_score"] = (
         (0.15 * df["rvol_ema_5"].fillna(0))
@@ -212,7 +225,7 @@ def run_python_indicator_pipeline(db_url, target_date=None):
         + (0.40 * df["rvol_sma_60"].fillna(0))
     ).round(2)
 
-    # --- 4. Filtering and Output ---
+    # --- 6. Filtering and Output ---
     cols_to_keep = [
         "ticker",
         "market_date",
@@ -220,6 +233,7 @@ def run_python_indicator_pipeline(db_url, target_date=None):
         "atr_14_smoothed",
         "sma_50",
         "sma_200",
+        "rsi_14", 
         "vol_ema_5",
         "vol_sma_10",
         "vol_ema_21",
@@ -238,7 +252,7 @@ def run_python_indicator_pipeline(db_url, target_date=None):
 
     # Drop rows that don't have enough history to calculate any baselines yet
     final_df = final_df.dropna(
-        subset=["atr_14_smoothed", "sma_50", "sma_200", "rvol_ema_5"], how="all"
+        subset=["atr_14_smoothed", "sma_50", "sma_200", "rvol_ema_5", "rsi_14"], how="all"
     )
 
     if final_df.empty:
