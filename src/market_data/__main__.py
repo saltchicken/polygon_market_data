@@ -10,10 +10,7 @@ from sqlalchemy.exc import IntegrityError
 
 
 def init_database(db_url):
-    """
-    Executes a SQL file to initialize the database schema.
-    WARNING: If using init_schema.sql, this will DROP the existing table.
-    """
+    """Executes a SQL file to initialize the database schema."""
     sql_file_path = os.path.join(os.path.dirname(__file__), "sql", "init_schema.sql")
 
     if not os.path.exists(sql_file_path):
@@ -25,55 +22,41 @@ def init_database(db_url):
         with engine.begin() as conn:
             with open(sql_file_path, "r") as file:
                 sql_script = file.read()
-                # Execute the SQL script
                 conn.execute(text(sql_script))
-        print(f"Successfully initialized database schema using {sql_file_path}")
+        print(f"Successfully initialized database schema.")
     except Exception as e:
         print(f"Database Initialization Error: {e}")
 
 
 def get_entire_market_ohlcv(date, api_key):
-    """
-    Fetches daily OHLCV for the entire US stock market for a specific date.
-    Returns the raw unfiltered data containing thousands of tickers.
-    """
+    """Fetches daily OHLCV for the entire US stock market for a specific date."""
     client = RESTClient(api_key)
 
     try:
-        print(f"Fetching entire market data from Polygon for {date}...")
         all_market_data = client.get_grouped_daily_aggs(date)
-
         if not all_market_data:
             return None
 
-        print(
-            f"\n--- Successfully pulled {len(all_market_data)} tickers for {date} ---"
-        )
+        print(f"--- Successfully pulled {len(all_market_data)} tickers for {date} ---")
 
-        # Convert Polygon Agg objects into a list of dictionaries
-        data_dicts = []
-        for agg in all_market_data:
-            data_dicts.append(
-                {
-                    "ticker": getattr(agg, "ticker", None),
-                    "open": getattr(agg, "open", None),
-                    "high": getattr(agg, "high", None),
-                    "low": getattr(agg, "low", None),
-                    "close": getattr(agg, "close", None),
-                    "volume": getattr(agg, "volume", None),
-                    "vwap": getattr(agg, "vwap", None),
-                    "timestamp": getattr(agg, "timestamp", None),
-                    "transactions": getattr(agg, "transactions", None),
-                }
-            )
+        data_dicts = [
+            {
+                "ticker": getattr(agg, "ticker", None),
+                "open": getattr(agg, "open", None),
+                "high": getattr(agg, "high", None),
+                "low": getattr(agg, "low", None),
+                "close": getattr(agg, "close", None),
+                "volume": getattr(agg, "volume", None),
+                "vwap": getattr(agg, "vwap", None),
+                "timestamp": getattr(agg, "timestamp", None),
+                "transactions": getattr(agg, "transactions", None),
+            }
+            for agg in all_market_data
+        ]
 
-        # Create and return the DataFrame
         df = pd.DataFrame(data_dicts)
-
-        # Convert timestamp from unix milliseconds to datetime
         if "timestamp" in df.columns:
             df["datetime"] = pd.to_datetime(df["timestamp"], unit="ms")
-
         return df
 
     except Exception as e:
@@ -82,99 +65,204 @@ def get_entire_market_ohlcv(date, api_key):
 
 
 def upload_to_postgres(df, table_name, db_url):
-    """
-    Uploads a pandas DataFrame to a PostgreSQL database.
-    """
+    """Uploads a pandas DataFrame to a PostgreSQL database."""
     try:
-        # Create SQLAlchemy engine
         engine = create_engine(db_url)
-
-        print(f"\nUploading {len(df)} rows to PostgreSQL table '{table_name}'...")
-
-        # We strictly use 'append' now, assuming the table was properly created
-        # via the init_schema.sql script.
         df.to_sql(name=table_name, con=engine, if_exists="append", index=False)
-
-        print("Upload successful!")
-
+        print(f"Uploaded {len(df)} rows to '{table_name}'.")
     except IntegrityError:
-        print("\nUpload Failed: Duplicate entries detected.")
-        print("You have already uploaded data for this date and ticker combination.")
-        print("The Primary Key constraint successfully prevented duplicate rows.")
+        print(
+            "Upload Skipped: Data for this date already exists (Primary Key constraint)."
+        )
     except Exception as e:
-        error_msg = str(e)
-        # Pandas sometimes wraps SQLAlchemy errors, bypassing the explicit IntegrityError catch.
-        # We check the string representation to catch the duplicate key constraint violation.
-        if "UniqueViolation" in error_msg or "duplicate key" in error_msg:
-            print("\nUpload Failed: Duplicate entries detected.")
-            print("You have already uploaded data for this date and ticker combination.")
-            print("The Primary Key constraint successfully prevented duplicate rows.")
+        if "UniqueViolation" in str(e) or "duplicate key" in str(e):
+            print("Upload Skipped: Data for this date already exists.")
         else:
-            # For any other errors, safely truncate the message so it doesn't flood the terminal
-            if len(error_msg) > 500:
-                print(f"\nDatabase Upload Error: {error_msg[:500]}\n... [Error message truncated]")
-            else:
-                print(f"\nDatabase Upload Error: {error_msg}")
-
-
-def run_elt_pipeline(target_date, db_url):
-    """
-    Executes the ELT SQL script to calculate indicators directly in the database.
-    """
-    sql_file_path = os.path.join(
-        os.path.dirname(__file__), "sql", "calculate_indicators.sql"
-    )
-
-    if not os.path.exists(sql_file_path):
-        print(f"Error: SQL file not found at {sql_file_path}")
-        return
-
-    try:
-        print(f"\nRunning ELT pipeline to calculate indicators for {target_date}...")
-        engine = create_engine(db_url)
-        affected_rows = 0
-
-        with engine.begin() as conn:
-            with open(sql_file_path, "r") as file:
-                sql_script = file.read()
-
-                # Execute the SQL script, passing the target date to the bind parameter
-                result = conn.execute(text(sql_script), {"target_date": target_date})
-                # Extract the rowcount before the transaction commits/closes
-                affected_rows = result.rowcount
-
-        if affected_rows > 0:
-            print(
-                f"Successfully calculated and inserted/updated indicators for {affected_rows} tickers!"
-            )
-        else:
-            print(
-                "No new values were inserted or updated."
-            )
-
-    except Exception as e:
-        print(f"ELT Pipeline Error: {e}")
+            print(f"Database Upload Error: {str(e)[:200]}")
 
 
 def fetch_and_upload(target_date, db_url, api_key):
-    # 1. Fetch Market Data
     entire_market_data = get_entire_market_ohlcv(target_date, api_key)
-
     if entire_market_data is not None and not entire_market_data.empty:
-        # We explicitly add the trading day date as a column.
         entire_market_data["market_date"] = pd.to_datetime(target_date).date()
-
-        print("\nPreview of DataFrame:")
-        print(entire_market_data.head())
-        print(f"\nDataFrame Shape: {entire_market_data.shape}")
-
-        # 2. Upload Raw Market Data
         upload_to_postgres(
             df=entire_market_data, table_name="daily_market_data", db_url=db_url
         )
-
     else:
         print(f"No market data found for {target_date}.")
+
+
+def run_python_indicator_pipeline(db_url, target_date=None):
+    """
+    Calculates ATR, SMAs, EMAs, and RVOL entirely in Pandas.
+    If target_date is set, runs in Daily Mode. If None, runs in Bulk Reset Mode.
+    """
+    engine = create_engine(db_url)
+
+    if target_date:
+        print(f"\n[INDICATORS] Calculating for {target_date} using Pandas...")
+        # Daily Mode: Pull 300 days of history to give moving averages runway to calculate
+        query = text("""
+            SELECT ticker, market_date, high, low, close, volume
+            FROM daily_market_data
+            WHERE market_date >= (CAST(:dt AS DATE) - INTERVAL '300 days')
+              AND market_date <= CAST(:dt AS DATE)
+        """)
+        df = pd.read_sql(query, engine, params={"dt": target_date})
+    else:
+        print(f"\n[INDICATORS] Bulk calculating entire database using Pandas...")
+        query = text(
+            "SELECT ticker, market_date, high, low, close, volume FROM daily_market_data"
+        )
+        df = pd.read_sql(query, engine)
+
+    if df.empty:
+        print("No data found to calculate indicators.")
+        return
+
+    # Ensure chronologically sorted for moving averages
+    df = df.sort_values(by=["ticker", "market_date"]).reset_index(drop=True)
+
+    # --- 1. True Range Calculation ---
+    grouped_close = df.groupby("ticker")["close"]
+    df["prev_close"] = grouped_close.shift(1)
+    df["tr0"] = df["high"] - df["low"]
+    df["tr1"] = (df["high"] - df["prev_close"]).abs()
+    df["tr2"] = (df["low"] - df["prev_close"]).abs()
+    df["true_range"] = df[["tr0", "tr1", "tr2"]].max(axis=1)
+
+    # --- 2. Baselines Calculation ---
+    # Using groupby directly with rolling/ewm, then stripping the ticker index back out
+    grouped_tr = df.groupby("ticker")["true_range"]
+    grouped_vol = df.groupby("ticker")["volume"]
+
+    # Price Indicators (Rounded to 4 decimals for sub-penny accuracy)
+    df["atr_14_simple"] = (
+        grouped_tr.rolling(14, min_periods=14)
+        .mean()
+        .reset_index(level=0, drop=True)
+        .round(4)
+    )
+    df["atr_14_smoothed"] = (
+        grouped_tr.ewm(alpha=1/14, min_periods=14, adjust=False)
+        .mean()
+        .reset_index(level=0, drop=True)
+        .round(4)
+    )
+    df["sma_50"] = (
+        grouped_close.rolling(50, min_periods=50)
+        .mean()
+        .reset_index(level=0, drop=True)
+        .round(4)
+    )
+    df["sma_200"] = (
+        grouped_close.rolling(200, min_periods=200)
+        .mean()
+        .reset_index(level=0, drop=True)
+        .round(4)
+    )
+
+    # Volume Baselines (Rounded to 2 decimals)
+    df["vol_ema_5"] = (
+        grouped_vol.ewm(span=5, adjust=False)
+        .mean()
+        .reset_index(level=0, drop=True)
+        .round(2)
+    )
+    df["vol_sma_10"] = (
+        grouped_vol.rolling(10, min_periods=10)
+        .mean()
+        .reset_index(level=0, drop=True)
+        .round(2)
+    )
+    df["vol_ema_21"] = (
+        grouped_vol.ewm(span=21, adjust=False)
+        .mean()
+        .reset_index(level=0, drop=True)
+        .round(2)
+    )
+    df["vol_sma_60"] = (
+        grouped_vol.rolling(60, min_periods=60)
+        .mean()
+        .reset_index(level=0, drop=True)
+        .round(2)
+    )
+
+    # --- 3. RVOL Calculations ---
+    # Using replace(0, float('nan')) gracefully handles division-by-zero errors for halted/zero-volume days
+    df["rvol_ema_5"] = (df["volume"] / df["vol_ema_5"].replace(0, float("nan"))).round(
+        2
+    )
+    df["rvol_sma_10"] = (
+        df["volume"] / df["vol_sma_10"].replace(0, float("nan"))
+    ).round(2)
+    df["rvol_ema_21"] = (
+        df["volume"] / df["vol_ema_21"].replace(0, float("nan"))
+    ).round(2)
+    df["rvol_sma_60"] = (
+        df["volume"] / df["vol_sma_60"].replace(0, float("nan"))
+    ).round(2)
+
+    # --- 3.5 Attention Score Calculation ---
+    # Weighted Multiplier: Prioritizes historical breakouts (60-day) while still requiring short-term volume
+    df["attention_score"] = (
+        (0.15 * df["rvol_ema_5"].fillna(0))
+        + (0.15 * df["rvol_sma_10"].fillna(0))
+        + (0.30 * df["rvol_ema_21"].fillna(0))
+        + (0.40 * df["rvol_sma_60"].fillna(0))
+    ).round(2)
+
+    # --- 4. Filtering and Output ---
+    cols_to_keep = [
+        "ticker",
+        "market_date",
+        "atr_14_simple",
+        "atr_14_smoothed",
+        "sma_50",
+        "sma_200",
+        "vol_ema_5",
+        "vol_sma_10",
+        "vol_ema_21",
+        "vol_sma_60",
+        "rvol_ema_5",
+        "rvol_sma_10",
+        "rvol_ema_21",
+        "rvol_sma_60",
+        "attention_score",
+    ]
+    final_df = df[cols_to_keep].copy()
+
+    if target_date:
+        # In daily mode, isolate only the row for the target date to insert
+        final_df = final_df[final_df["market_date"].astype(str) == target_date]
+
+    # Drop rows that don't have enough history to calculate any baselines yet
+    final_df = final_df.dropna(
+        subset=["atr_14_smoothed", "sma_50", "sma_200", "rvol_ema_5"], how="all"
+    )
+
+    if final_df.empty:
+        print("No new calculated indicators to upload.")
+        return
+
+    print(f"Uploading {len(final_df)} calculated records to database...")
+
+    with engine.begin() as conn:
+        if target_date:
+            # Delete existing row for today to prevent duplicates
+            conn.execute(
+                text("DELETE FROM daily_indicators WHERE market_date = :dt"),
+                {"dt": target_date},
+            )
+        else:
+            # Bulk mode, clear the whole table before inserting the massive dataframe
+            conn.execute(text("TRUNCATE TABLE daily_indicators"))
+
+    # chunksize ensures we don't overwhelm Postgres memory on bulk backfills
+    final_df.to_sql(
+        "daily_indicators", engine, if_exists="append", index=False, chunksize=20000
+    )
+    print("Indicators successfully updated!")
 
 
 if __name__ == "__main__":
@@ -183,56 +271,37 @@ if __name__ == "__main__":
     DB_URL = os.getenv("DB_URL")
 
     # --- Configuration ---
-    RESET_DATABASE = False
+    RESET_DATABASE = True
 
-    if not API_KEY:
-        print("Error: 'POLYGON_API_KEY' not found.")
-        print(
-            "Please create a .env file and add: POLYGON_API_KEY=your_actual_api_key_here"
-        )
+    if not API_KEY or not DB_URL:
+        print("Error: Missing env variables.")
         sys.exit(1)
 
-    if not DB_URL:
-        print("Error: 'DB_URL' not found.")
-        print(
-            "Please add to .env: DB_URL=postgresql://user:password@localhost:5432/your_db_name"
-        )
-        sys.exit(1)
-
-    # 0. Initialize Database (Optional step for starting over)
     if RESET_DATABASE:
-        print("\n--- Starting Database Reset ---")
+        print("\n=== STARTING 1-YEAR DATABASE RESET ===")
         init_database(DB_URL)
 
-        print("\n--- Database Reset Complete ---")
-        print("\n--- Starting 1-Year Backfill ---")
-
-        # Calculate start and end dates
         end_date = datetime.today()
         start_date = end_date - timedelta(days=365)
-
-        # Generate a list of business days (Mon-Fri) to skip weekends
         dates_to_fetch = pd.bdate_range(start=start_date, end=end_date)
 
-        print(
-            f"\n--- Starting 1-Year Backfill from {start_date.date()} to {end_date.date()} ---"
-        )
-        print(f"Total potential trading days to process: {len(dates_to_fetch)}")
-
+        print(f"\n[PHASE 1] Fetching {len(dates_to_fetch)} days of raw market data...")
         for date_obj in dates_to_fetch:
             target_date = date_obj.strftime("%Y-%m-%d")
-            print(f"\n=======================================================")
-            print(f"Processing date: {target_date}")
-            print(f"=======================================================")
-
+            print(f"\n--- Processing Raw Data: {target_date} ---")
             fetch_and_upload(target_date, DB_URL, API_KEY)
-            run_elt_pipeline(target_date, DB_URL)
-
-            print(f"Sleeping for 13 seconds to avoid rate limits...")
+            print("Sleeping for 13 seconds to avoid rate limits...")
             time.sleep(13)
 
+        print("\n[PHASE 2] Bulk calculating all indicators...")
+        run_python_indicator_pipeline(DB_URL, target_date=None)
+
+        print("\n=== RESET COMPLETE ===")
+
     else:
-        # Standard daily run
+        # Standard Daily Run
         TARGET_DATE = datetime.today().strftime("%Y-%m-%d")
+        print(f"\n=== RUNNING DAILY UPDATE FOR {TARGET_DATE} ===")
+
         fetch_and_upload(TARGET_DATE, DB_URL, API_KEY)
-        run_elt_pipeline(TARGET_DATE, DB_URL)
+        run_python_indicator_pipeline(DB_URL, target_date=TARGET_DATE)
