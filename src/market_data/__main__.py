@@ -102,7 +102,19 @@ def upload_to_postgres(df, table_name, db_url):
         print("You have already uploaded data for this date and ticker combination.")
         print("The Primary Key constraint successfully prevented duplicate rows.")
     except Exception as e:
-        print(f"\nDatabase Upload Error: {e}")
+        error_msg = str(e)
+        # Pandas sometimes wraps SQLAlchemy errors, bypassing the explicit IntegrityError catch.
+        # We check the string representation to catch the duplicate key constraint violation.
+        if "UniqueViolation" in error_msg or "duplicate key" in error_msg:
+            print("\nUpload Failed: Duplicate entries detected.")
+            print("You have already uploaded data for this date and ticker combination.")
+            print("The Primary Key constraint successfully prevented duplicate rows.")
+        else:
+            # For any other errors, safely truncate the message so it doesn't flood the terminal
+            if len(error_msg) > 500:
+                print(f"\nDatabase Upload Error: {error_msg[:500]}\n... [Error message truncated]")
+            else:
+                print(f"\nDatabase Upload Error: {error_msg}")
 
 
 def run_elt_pipeline(target_date, db_url):
@@ -222,6 +234,5 @@ if __name__ == "__main__":
     else:
         # Standard daily run
         TARGET_DATE = datetime.today().strftime("%Y-%m-%d")
-        TARGET_DATE = "2026-04-08"
         fetch_and_upload(TARGET_DATE, DB_URL, API_KEY)
         run_elt_pipeline(TARGET_DATE, DB_URL)
