@@ -22,8 +22,8 @@ CREATE TABLE daily_indicators (
     market_date DATE NOT NULL,
     
     -- Price Indicators
-    atr_14_simple DOUBLE PRECISION,
-    atr_14_smoothed DOUBLE PRECISION,
+    atr_14 DOUBLE PRECISION,
+    atr_14_pct DOUBLE PRECISION,
     sma_50 DOUBLE PRECISION,
     sma_200 DOUBLE PRECISION,
     rsi_14 DOUBLE PRECISION,

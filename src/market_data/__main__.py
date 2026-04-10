@@ -137,18 +137,18 @@ def run_python_indicator_pipeline(db_url, target_date=None):
     grouped_vol = df.groupby("ticker")["volume"]
 
     # Price Indicators (Rounded to 4 decimals for sub-penny accuracy)
-    df["atr_14_simple"] = (
-        grouped_tr.rolling(14, min_periods=14)
-        .mean()
-        .reset_index(level=0, drop=True)
-        .round(4)
-    )
-    df["atr_14_smoothed"] = (
+    df["atr_14"] = (
         grouped_tr.ewm(alpha=1/14, min_periods=14, adjust=False)
         .mean()
         .reset_index(level=0, drop=True)
         .round(4)
     )
+    
+    # Calculate ATR as a percentage of the close price
+    df["atr_14_pct"] = (
+        (df["atr_14"] / df["close"].replace(0, float("nan"))) * 100
+    ).round(4)
+    
     df["sma_50"] = (
         grouped_close.rolling(50, min_periods=50)
         .mean()
@@ -229,8 +229,8 @@ def run_python_indicator_pipeline(db_url, target_date=None):
     cols_to_keep = [
         "ticker",
         "market_date",
-        "atr_14_simple",
-        "atr_14_smoothed",
+        "atr_14",
+        "atr_14_pct",
         "sma_50",
         "sma_200",
         "rsi_14", 
@@ -252,7 +252,7 @@ def run_python_indicator_pipeline(db_url, target_date=None):
 
     # Drop rows that don't have enough history to calculate any baselines yet
     final_df = final_df.dropna(
-        subset=["atr_14_smoothed", "sma_50", "sma_200", "rvol_ema_5", "rsi_14"], how="all"
+        subset=["atr_14", "sma_50", "sma_200", "rvol_ema_5", "rsi_14"], how="all"
     )
 
     if final_df.empty:
