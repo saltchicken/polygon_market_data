@@ -22,6 +22,7 @@ CREATE TABLE daily_indicators (
     market_date DATE,
     atr_14 NUMERIC,
     sma_50 NUMERIC,
+    sma_200 NUMERIC,
 
     CONSTRAINT pk_ticker_indicator_date PRIMARY KEY (ticker, market_date)
 );
