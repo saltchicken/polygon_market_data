@@ -157,7 +157,7 @@ if __name__ == "__main__":
     DB_URL = os.getenv("DB_URL")
 
     # --- Configuration ---
-    RESET_DATABASE = True
+    RESET_DATABASE = False
 
     if not API_KEY:
         print("Error: 'POLYGON_API_KEY' not found.")
