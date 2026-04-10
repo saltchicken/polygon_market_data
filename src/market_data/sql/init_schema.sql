@@ -21,11 +21,21 @@ CREATE TABLE daily_indicators (
     ticker TEXT NOT NULL,
     market_date DATE NOT NULL,
     
-    -- Price Indicators
+    -- Price & Trend Indicators
+    gap_pct DOUBLE PRECISION,
     atr_14 DOUBLE PRECISION,
     atr_14_pct DOUBLE PRECISION,
     sma_50 DOUBLE PRECISION,
     sma_200 DOUBLE PRECISION,
+    ema_9 DOUBLE PRECISION,
+    ema_21 DOUBLE PRECISION,
+    
+    -- Bollinger Bands
+    bb_mid DOUBLE PRECISION,
+    bb_upper DOUBLE PRECISION,
+    bb_lower DOUBLE PRECISION,
+    
+    -- Oscillators
     rsi_14 DOUBLE PRECISION,
 
     -- Volume Baselines (The Denominators)

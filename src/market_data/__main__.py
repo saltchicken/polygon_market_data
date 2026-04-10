@@ -94,7 +94,7 @@ def fetch_and_upload(target_date, db_url, api_key):
 
 def run_python_indicator_pipeline(db_url, target_date=None):
     """
-    Calculates ATR, SMAs, EMAs, RVOL, and RSI entirely in Pandas.
+    Calculates ATR, SMAs, EMAs, Bollinger Bands, Gap %, RVOL, and RSI entirely in Pandas.
     If target_date is set, runs in Daily Mode. If None, runs in Bulk Reset Mode.
     """
     engine = create_engine(db_url)
@@ -103,7 +103,7 @@ def run_python_indicator_pipeline(db_url, target_date=None):
         print(f"\n[INDICATORS] Calculating for {target_date} using Pandas...")
         # Daily Mode: Pull 300 days of history to give moving averages runway to calculate
         query = text("""
-            SELECT ticker, market_date, high, low, close, volume
+            SELECT ticker, market_date, open, high, low, close, volume
             FROM daily_market_data
             WHERE market_date >= (CAST(:dt AS DATE) - INTERVAL '300 days')
               AND market_date <= CAST(:dt AS DATE)
@@ -112,7 +112,7 @@ def run_python_indicator_pipeline(db_url, target_date=None):
     else:
         print(f"\n[INDICATORS] Bulk calculating entire database using Pandas...")
         query = text(
-            "SELECT ticker, market_date, high, low, close, volume FROM daily_market_data"
+            "SELECT ticker, market_date, open, high, low, close, volume FROM daily_market_data"
         )
         df = pd.read_sql(query, engine)
 
@@ -123,9 +123,15 @@ def run_python_indicator_pipeline(db_url, target_date=None):
     # Ensure chronologically sorted for moving averages
     df = df.sort_values(by=["ticker", "market_date"]).reset_index(drop=True)
 
-    # --- 1. True Range Calculation ---
+    # --- 1. True Range & Gap Calculation ---
     grouped_close = df.groupby("ticker")["close"]
     df["prev_close"] = grouped_close.shift(1)
+    
+    # Gap % Calculation
+    df["gap_pct"] = (
+        ((df["open"] - df["prev_close"]) / df["prev_close"].replace(0, float("nan"))) * 100
+    ).round(4)
+    
     df["tr0"] = df["high"] - df["low"]
     df["tr1"] = (df["high"] - df["prev_close"]).abs()
     df["tr2"] = (df["low"] - df["prev_close"]).abs()
@@ -149,6 +155,7 @@ def run_python_indicator_pipeline(db_url, target_date=None):
         (df["atr_14"] / df["close"].replace(0, float("nan"))) * 100
     ).round(4)
     
+    # SMAs
     df["sma_50"] = (
         grouped_close.rolling(50, min_periods=50)
         .mean()
@@ -161,6 +168,27 @@ def run_python_indicator_pipeline(db_url, target_date=None):
         .reset_index(level=0, drop=True)
         .round(4)
     )
+    
+    # EMAs
+    df["ema_9"] = (
+        grouped_close.ewm(span=9, adjust=False)
+        .mean()
+        .reset_index(level=0, drop=True)
+        .round(4)
+    )
+    df["ema_21"] = (
+        grouped_close.ewm(span=21, adjust=False)
+        .mean()
+        .reset_index(level=0, drop=True)
+        .round(4)
+    )
+    
+    # Bollinger Bands (20-period, 2 std dev)
+    sma_20 = grouped_close.rolling(20, min_periods=20).mean().reset_index(level=0, drop=True)
+    std_20 = grouped_close.rolling(20, min_periods=20).std().reset_index(level=0, drop=True)
+    df["bb_mid"] = sma_20.round(4)
+    df["bb_upper"] = (sma_20 + (2 * std_20)).round(4)
+    df["bb_lower"] = (sma_20 - (2 * std_20)).round(4)
 
     # Volume Baselines (Rounded to 2 decimals)
     df["vol_ema_5"] = (
@@ -229,10 +257,16 @@ def run_python_indicator_pipeline(db_url, target_date=None):
     cols_to_keep = [
         "ticker",
         "market_date",
+        "gap_pct",
         "atr_14",
         "atr_14_pct",
         "sma_50",
         "sma_200",
+        "ema_9",
+        "ema_21",
+        "bb_mid",
+        "bb_upper",
+        "bb_lower",
         "rsi_14", 
         "vol_ema_5",
         "vol_sma_10",
