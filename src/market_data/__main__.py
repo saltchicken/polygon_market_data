@@ -1,7 +1,8 @@
 import os
 import sys
+import time
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 from polygon import RESTClient
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
@@ -155,10 +156,8 @@ if __name__ == "__main__":
     API_KEY = os.getenv("POLYGON_API_KEY")
     DB_URL = os.getenv("DB_URL")
 
-    # TARGET_DATE = datetime.today().strftime('%Y-%m-%d')
-    TARGET_DATE = "2026-04-02"
-
-    RESET_DATABASE = False
+    # --- Configuration ---
+    RESET_DATABASE = True
 
     if not API_KEY:
         print("Error: 'POLYGON_API_KEY' not found.")
@@ -179,5 +178,33 @@ if __name__ == "__main__":
         print("\n--- Starting Database Reset ---")
         init_database(DB_URL)
 
-    fetch_and_upload(TARGET_DATE, DB_URL, API_KEY)
-    run_elt_pipeline(TARGET_DATE, DB_URL)
+        print("\n--- Database Reset Complete ---")
+        print("\n--- Starting 1-Year Backfill ---")
+
+        # Calculate start and end dates
+        end_date = datetime.today()
+        start_date = end_date - timedelta(days=365)
+
+        # Generate a list of business days (Mon-Fri) to skip weekends
+        dates_to_fetch = pd.bdate_range(start=start_date, end=end_date)
+
+        print(f"\n--- Starting 1-Year Backfill from {start_date.date()} to {end_date.date()} ---")
+        print(f"Total potential trading days to process: {len(dates_to_fetch)}")
+
+        for date_obj in dates_to_fetch:
+            target_date = date_obj.strftime('%Y-%m-%d')
+            print(f"\n=======================================================")
+            print(f"Processing date: {target_date}")
+            print(f"=======================================================")
+            
+            fetch_and_upload(target_date, DB_URL, API_KEY)
+            run_elt_pipeline(target_date, DB_URL)
+            
+            print(f"Sleeping for 13 seconds to avoid rate limits...")
+            time.sleep(13)
+
+    else:
+        # Standard daily run
+        TARGET_DATE = datetime.today().strftime('%Y-%m-%d')
+        fetch_and_upload(TARGET_DATE, DB_URL, API_KEY)
+        run_elt_pipeline(TARGET_DATE, DB_URL)
