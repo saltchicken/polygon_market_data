@@ -142,8 +142,7 @@ def run_python_indicator_pipeline(db_url, target_date=None):
 
     # Open to Close % Calculation (Close vs Open)
     df["open_to_close_pct"] = (
-        ((df["close"] - df["open"]) / df["open"].replace(0, float("nan")))
-        * 100
+        ((df["close"] - df["open"]) / df["open"].replace(0, float("nan"))) * 100
     ).round(4)
 
     df["tr0"] = df["high"] - df["low"]
@@ -317,15 +316,25 @@ def run_python_indicator_pipeline(db_url, target_date=None):
 
     # Function to calculate RSI to avoid repeating code
     def calculate_rsi(periods):
-        roll_up = up.groupby(df["ticker"]).ewm(alpha=1/periods, min_periods=periods, adjust=False).mean().reset_index(level=0, drop=True)
-        roll_down = down.groupby(df["ticker"]).ewm(alpha=1/periods, min_periods=periods, adjust=False).mean().reset_index(level=0, drop=True)
+        roll_up = (
+            up.groupby(df["ticker"])
+            .ewm(alpha=1 / periods, min_periods=periods, adjust=False)
+            .mean()
+            .reset_index(level=0, drop=True)
+        )
+        roll_down = (
+            down.groupby(df["ticker"])
+            .ewm(alpha=1 / periods, min_periods=periods, adjust=False)
+            .mean()
+            .reset_index(level=0, drop=True)
+        )
         rs = roll_up / roll_down
         rsi = 100.0 - (100.0 / (1.0 + rs))
         return rsi.mask(roll_down == 0, 100.0).round(2)
 
     # Standard 14-day RSI
     df["rsi_14"] = calculate_rsi(14)
-    
+
     # Fast (5-day) and Slow (21-day) RSI
     df["rsi_5"] = calculate_rsi(5)
     df["rsi_21"] = calculate_rsi(21)
@@ -334,7 +343,7 @@ def run_python_indicator_pipeline(db_url, target_date=None):
     df["rsi_5_21_diff"] = (df["rsi_5"] - df["rsi_21"]).round(2)
 
     # --- 4. Cumulative & Trend Strength (OBV, ADX) ---
-    
+
     # OBV Calculation
     direction = np.sign(df["close"] - df["prev_close"]).fillna(0)
     df["obv_change"] = direction * df["volume"]
@@ -350,15 +359,19 @@ def run_python_indicator_pipeline(db_url, target_date=None):
                 WHERE market_date < CAST(:dt AS DATE)
             )
         """)
-        prev_obv_df = pd.read_sql(yesterday_obv_query, engine, params={"dt": target_date})
-        
+        prev_obv_df = pd.read_sql(
+            yesterday_obv_query, engine, params={"dt": target_date}
+        )
+
         df = df.merge(prev_obv_df, on="ticker", how="left")
         df["prev_obv"] = df["prev_obv"].fillna(0)
-        
+
         # We only need the accurate OBV for the target_date row
         is_target = df["market_date"].astype(str) == target_date
-        df["obv"] = 0.0 # dummy for older historical rows in the daily 300-day calc
-        df.loc[is_target, "obv"] = df.loc[is_target, "prev_obv"] + df.loc[is_target, "obv_change"]
+        df["obv"] = 0.0  # dummy for older historical rows in the daily 300-day calc
+        df.loc[is_target, "obv"] = (
+            df.loc[is_target, "prev_obv"] + df.loc[is_target, "obv_change"]
+        )
     else:
         # Bulk mode: Accumulate from the start of the dataset
         df["obv"] = df.groupby("ticker")["obv_change"].cumsum()
@@ -377,15 +390,36 @@ def run_python_indicator_pipeline(db_url, target_date=None):
     df["minus_dm"] = np.where((down_move > up_move) & (down_move > 0), down_move, 0.0)
 
     # Wilder's Smoothing for Directional Movement (alpha=1/14)
-    smoothed_plus_dm = df.groupby("ticker")["plus_dm"].ewm(alpha=1/14, min_periods=14, adjust=False).mean().reset_index(level=0, drop=True)
-    smoothed_minus_dm = df.groupby("ticker")["minus_dm"].ewm(alpha=1/14, min_periods=14, adjust=False).mean().reset_index(level=0, drop=True)
+    smoothed_plus_dm = (
+        df.groupby("ticker")["plus_dm"]
+        .ewm(alpha=1 / 14, min_periods=14, adjust=False)
+        .mean()
+        .reset_index(level=0, drop=True)
+    )
+    smoothed_minus_dm = (
+        df.groupby("ticker")["minus_dm"]
+        .ewm(alpha=1 / 14, min_periods=14, adjust=False)
+        .mean()
+        .reset_index(level=0, drop=True)
+    )
 
     # The True Range denominator natively equals df["atr_14"] since ATR is the smoothed True Range!
     df["plus_di"] = (100 * smoothed_plus_dm / df["atr_14"].replace(0, np.nan)).round(2)
-    df["minus_di"] = (100 * smoothed_minus_dm / df["atr_14"].replace(0, np.nan)).round(2)
+    df["minus_di"] = (100 * smoothed_minus_dm / df["atr_14"].replace(0, np.nan)).round(
+        2
+    )
 
-    df["dx"] = 100 * (np.abs(df["plus_di"] - df["minus_di"]) / (df["plus_di"] + df["minus_di"]).replace(0, np.nan))
-    df["adx_14"] = df.groupby("ticker")["dx"].ewm(alpha=1/14, min_periods=14, adjust=False).mean().reset_index(level=0, drop=True).round(2)
+    df["dx"] = 100 * (
+        np.abs(df["plus_di"] - df["minus_di"])
+        / (df["plus_di"] + df["minus_di"]).replace(0, np.nan)
+    )
+    df["adx_14"] = (
+        df.groupby("ticker")["dx"]
+        .ewm(alpha=1 / 14, min_periods=14, adjust=False)
+        .mean()
+        .reset_index(level=0, drop=True)
+        .round(2)
+    )
 
     # --- 5. RVOL Calculations ---
     # Using replace(0, float('nan')) gracefully handles division-by-zero errors for halted/zero-volume days
