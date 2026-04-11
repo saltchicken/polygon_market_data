@@ -133,6 +133,18 @@ def run_python_indicator_pipeline(db_url, target_date=None):
         * 100
     ).round(4)
 
+    # Price Change % Calculation (Close vs Prev Close)
+    df["price_change_pct"] = (
+        ((df["close"] - df["prev_close"]) / df["prev_close"].replace(0, float("nan")))
+        * 100
+    ).round(4)
+
+    # Open to Close % Calculation (Close vs Open)
+    df["open_to_close_pct"] = (
+        ((df["close"] - df["open"]) / df["open"].replace(0, float("nan")))
+        * 100
+    ).round(4)
+
     df["tr0"] = df["high"] - df["low"]
     df["tr1"] = (df["high"] - df["prev_close"]).abs()
     df["tr2"] = (df["low"] - df["prev_close"]).abs()
@@ -329,6 +341,9 @@ def run_python_indicator_pipeline(db_url, target_date=None):
         "ticker",
         "market_date",
         "gap_pct",
+        "prev_close",
+        "price_change_pct",
+        "open_to_close_pct",
         "atr_14",
         "atr_14_pct",
         "atr_5",

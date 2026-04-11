@@ -22,7 +22,10 @@ CREATE TABLE daily_indicators (
     market_date DATE NOT NULL,
     
     -- Price & Trend Indicators
+    prev_close DOUBLE PRECISION,
     gap_pct DOUBLE PRECISION,
+    price_change_pct DOUBLE PRECISION,
+    open_to_close_pct DOUBLE PRECISION,
     atr_14 DOUBLE PRECISION,
     atr_14_pct DOUBLE PRECISION,
     atr_5 DOUBLE PRECISION,
