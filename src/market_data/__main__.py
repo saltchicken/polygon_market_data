@@ -94,7 +94,7 @@ def fetch_and_upload(target_date, db_url, api_key):
 
 def run_python_indicator_pipeline(db_url, target_date=None):
     """
-    Calculates ATR, SMAs, EMAs, Bollinger Bands, Gap %, RVOL, and RSI entirely in Pandas.
+    Calculates ATR, SMAs, EMAs, Bollinger Bands, Gap %, RVOL, RSI, and MACD entirely in Pandas.
     If target_date is set, runs in Daily Mode. If None, runs in Bulk Reset Mode.
     """
     engine = create_engine(db_url)
@@ -182,6 +182,20 @@ def run_python_indicator_pipeline(db_url, target_date=None):
         .reset_index(level=0, drop=True)
         .round(4)
     )
+
+    # MACD (12 EMA - 26 EMA)
+    ema_12 = grouped_close.ewm(span=12, adjust=False).mean().reset_index(level=0, drop=True)
+    ema_26 = grouped_close.ewm(span=26, adjust=False).mean().reset_index(level=0, drop=True)
+    df["macd"] = (ema_12 - ema_26).round(4)
+    
+    # MACD Signal (9 EMA of MACD) and Histogram
+    df["macd_signal"] = (
+        df.groupby("ticker")["macd"].ewm(span=9, adjust=False)
+        .mean()
+        .reset_index(level=0, drop=True)
+        .round(4)
+    )
+    df["macd_hist"] = (df["macd"] - df["macd_signal"]).round(4)
     
     # Bollinger Bands (20-period, 2 std dev)
     sma_20 = grouped_close.rolling(20, min_periods=20).mean().reset_index(level=0, drop=True)
@@ -244,15 +258,6 @@ def run_python_indicator_pipeline(db_url, target_date=None):
         df["volume"] / df["vol_sma_60"].replace(0, float("nan"))
     ).round(2)
 
-    # --- 5. Attention Score Calculation ---
-    # Weighted Multiplier: Prioritizes historical breakouts (60-day) while still requiring short-term volume
-    df["attention_score"] = (
-        (0.15 * df["rvol_ema_5"].fillna(0))
-        + (0.15 * df["rvol_sma_10"].fillna(0))
-        + (0.30 * df["rvol_ema_21"].fillna(0))
-        + (0.40 * df["rvol_sma_60"].fillna(0))
-    ).round(2)
-
     # --- 6. Filtering and Output ---
     cols_to_keep = [
         "ticker",
@@ -264,6 +269,9 @@ def run_python_indicator_pipeline(db_url, target_date=None):
         "sma_200",
         "ema_9",
         "ema_21",
+        "macd",
+        "macd_signal",
+        "macd_hist",
         "bb_mid",
         "bb_upper",
         "bb_lower",
@@ -276,7 +284,6 @@ def run_python_indicator_pipeline(db_url, target_date=None):
         "rvol_sma_10",
         "rvol_ema_21",
         "rvol_sma_60",
-        "attention_score",
     ]
     final_df = df[cols_to_keep].copy()
 

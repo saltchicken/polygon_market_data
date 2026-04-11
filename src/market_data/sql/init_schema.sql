@@ -35,8 +35,11 @@ CREATE TABLE daily_indicators (
     bb_upper DOUBLE PRECISION,
     bb_lower DOUBLE PRECISION,
     
-    -- Oscillators
+    -- Oscillators & Momentum
     rsi_14 DOUBLE PRECISION,
+    macd DOUBLE PRECISION,
+    macd_signal DOUBLE PRECISION,
+    macd_hist DOUBLE PRECISION,
 
     -- Volume Baselines (The Denominators)
     vol_ema_5 DOUBLE PRECISION,
@@ -49,9 +52,6 @@ CREATE TABLE daily_indicators (
     rvol_sma_10 DOUBLE PRECISION,
     rvol_ema_21 DOUBLE PRECISION,
     rvol_sma_60 DOUBLE PRECISION,
-
-    -- Final Ranking Metric
-    attention_score DOUBLE PRECISION,
 
     CONSTRAINT pk_ticker_indicator_date PRIMARY KEY (ticker, market_date)
 );
