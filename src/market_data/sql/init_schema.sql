@@ -52,6 +52,12 @@ CREATE TABLE daily_indicators (
     macd DOUBLE PRECISION,
     macd_signal DOUBLE PRECISION,
     macd_hist DOUBLE PRECISION,
+    
+    -- Trend Strength (ADX) & Cumulative Volume (OBV)
+    adx_14 DOUBLE PRECISION,
+    plus_di DOUBLE PRECISION,
+    minus_di DOUBLE PRECISION,
+    obv DOUBLE PRECISION,
 
     -- Volume Baselines (The Denominators)
     vol_ema_5 DOUBLE PRECISION,

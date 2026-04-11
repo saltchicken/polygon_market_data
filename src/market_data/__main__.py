@@ -1,6 +1,7 @@
 import os
 import sys
 import time
+import numpy as np
 import pandas as pd
 from datetime import datetime, timedelta
 from polygon import RESTClient
@@ -94,7 +95,7 @@ def fetch_and_upload(target_date, db_url, api_key):
 
 def run_python_indicator_pipeline(db_url, target_date=None):
     """
-    Calculates ATR, SMAs, EMAs, Bollinger Bands, Gap %, RVOL, RSI, and MACD entirely in Pandas.
+    Calculates ATR, SMAs, EMAs, Bollinger Bands, Gap %, RVOL, RSI, MACD, OBV, and ADX entirely in Pandas.
     If target_date is set, runs in Daily Mode. If None, runs in Bulk Reset Mode.
     """
     engine = create_engine(db_url)
@@ -317,7 +318,61 @@ def run_python_indicator_pipeline(db_url, target_date=None):
     # RSI Momentum: Absolute distance between Fast and Slow
     df["rsi_5_21_diff"] = (df["rsi_5"] - df["rsi_21"]).round(2)
 
-    # --- 4. RVOL Calculations ---
+    # --- 4. Cumulative & Trend Strength (OBV, ADX) ---
+    
+    # OBV Calculation
+    direction = np.sign(df["close"] - df["prev_close"]).fillna(0)
+    df["obv_change"] = direction * df["volume"]
+
+    if target_date:
+        # For daily updates, fetch yesterday's OBV from the database to anchor today's cumulative sum
+        yesterday_obv_query = text("""
+            SELECT ticker, obv as prev_obv
+            FROM daily_indicators
+            WHERE market_date = (
+                SELECT MAX(market_date) 
+                FROM daily_indicators 
+                WHERE market_date < CAST(:dt AS DATE)
+            )
+        """)
+        prev_obv_df = pd.read_sql(yesterday_obv_query, engine, params={"dt": target_date})
+        
+        df = df.merge(prev_obv_df, on="ticker", how="left")
+        df["prev_obv"] = df["prev_obv"].fillna(0)
+        
+        # We only need the accurate OBV for the target_date row
+        is_target = df["market_date"].astype(str) == target_date
+        df["obv"] = 0.0 # dummy for older historical rows in the daily 300-day calc
+        df.loc[is_target, "obv"] = df.loc[is_target, "prev_obv"] + df.loc[is_target, "obv_change"]
+    else:
+        # Bulk mode: Accumulate from the start of the dataset
+        df["obv"] = df.groupby("ticker")["obv_change"].cumsum()
+
+    # ADX Calculation (Wilder's 14-Period)
+    grouped_high = df.groupby("ticker")["high"]
+    grouped_low = df.groupby("ticker")["low"]
+
+    df["prev_high"] = grouped_high.shift(1)
+    df["prev_low"] = grouped_low.shift(1)
+
+    up_move = df["high"] - df["prev_high"]
+    down_move = df["prev_low"] - df["low"]
+
+    df["plus_dm"] = np.where((up_move > down_move) & (up_move > 0), up_move, 0.0)
+    df["minus_dm"] = np.where((down_move > up_move) & (down_move > 0), down_move, 0.0)
+
+    # Wilder's Smoothing for Directional Movement (alpha=1/14)
+    smoothed_plus_dm = df.groupby("ticker")["plus_dm"].ewm(alpha=1/14, min_periods=14, adjust=False).mean().reset_index(level=0, drop=True)
+    smoothed_minus_dm = df.groupby("ticker")["minus_dm"].ewm(alpha=1/14, min_periods=14, adjust=False).mean().reset_index(level=0, drop=True)
+
+    # The True Range denominator natively equals df["atr_14"] since ATR is the smoothed True Range!
+    df["plus_di"] = (100 * smoothed_plus_dm / df["atr_14"].replace(0, np.nan)).round(2)
+    df["minus_di"] = (100 * smoothed_minus_dm / df["atr_14"].replace(0, np.nan)).round(2)
+
+    df["dx"] = 100 * (np.abs(df["plus_di"] - df["minus_di"]) / (df["plus_di"] + df["minus_di"]).replace(0, np.nan))
+    df["adx_14"] = df.groupby("ticker")["dx"].ewm(alpha=1/14, min_periods=14, adjust=False).mean().reset_index(level=0, drop=True).round(2)
+
+    # --- 5. RVOL Calculations ---
     # Using replace(0, float('nan')) gracefully handles division-by-zero errors for halted/zero-volume days
     df["rvol_ema_5"] = (df["volume"] / df["vol_ema_5"].replace(0, float("nan"))).round(
         2
@@ -366,6 +421,10 @@ def run_python_indicator_pipeline(db_url, target_date=None):
         "rsi_5",
         "rsi_21",
         "rsi_5_21_diff",
+        "adx_14",
+        "plus_di",
+        "minus_di",
+        "obv",
         "vol_ema_5",
         "vol_sma_10",
         "vol_ema_21",
