@@ -156,6 +156,27 @@ def run_python_indicator_pipeline(db_url, target_date=None):
         (df["atr_14"] / df["close"].replace(0, float("nan"))) * 100
     ).round(4)
 
+    # Short-term ATR (5-day)
+    df["atr_5"] = (
+        grouped_tr.ewm(alpha=1 / 5, min_periods=5, adjust=False)
+        .mean()
+        .reset_index(level=0, drop=True)
+        .round(4)
+    )
+
+    # Longer-term ATR (21-day)
+    df["atr_21"] = (
+        grouped_tr.ewm(alpha=1 / 21, min_periods=21, adjust=False)
+        .mean()
+        .reset_index(level=0, drop=True)
+        .round(4)
+    )
+
+    # Volatility Momentum: Distance between Fast and Slow ATR
+    df["atr_5_21_dist_pct"] = (
+        ((df["atr_5"] - df["atr_21"]) / df["atr_21"].replace(0, float("nan"))) * 100
+    ).round(2)
+
     # SMAs
     df["sma_50"] = (
         grouped_close.rolling(50, min_periods=50)
@@ -261,28 +282,28 @@ def run_python_indicator_pipeline(db_url, target_date=None):
         * 100
     ).round(2)
 
-    # --- 3. RSI Calculation (Wilder's Smoothing) ---
+    # --- 3. RSI Calculations (Wilder's Smoothing) ---
     delta = df["close"] - df["prev_close"]
     up = delta.clip(lower=0)
     down = -1 * delta.clip(upper=0)
 
-    roll_up = (
-        up.groupby(df["ticker"])
-        .ewm(alpha=1 / 14, min_periods=14, adjust=False)
-        .mean()
-        .reset_index(level=0, drop=True)
-    )
-    roll_down = (
-        down.groupby(df["ticker"])
-        .ewm(alpha=1 / 14, min_periods=14, adjust=False)
-        .mean()
-        .reset_index(level=0, drop=True)
-    )
+    # Function to calculate RSI to avoid repeating code
+    def calculate_rsi(periods):
+        roll_up = up.groupby(df["ticker"]).ewm(alpha=1/periods, min_periods=periods, adjust=False).mean().reset_index(level=0, drop=True)
+        roll_down = down.groupby(df["ticker"]).ewm(alpha=1/periods, min_periods=periods, adjust=False).mean().reset_index(level=0, drop=True)
+        rs = roll_up / roll_down
+        rsi = 100.0 - (100.0 / (1.0 + rs))
+        return rsi.mask(roll_down == 0, 100.0).round(2)
 
-    rs = roll_up / roll_down
-    df["rsi_14"] = 100.0 - (100.0 / (1.0 + rs))
-    # Handle the division-by-zero edge case where a stock only goes up for 14 days straight
-    df["rsi_14"] = df["rsi_14"].mask(roll_down == 0, 100.0).round(2)
+    # Standard 14-day RSI
+    df["rsi_14"] = calculate_rsi(14)
+    
+    # Fast (5-day) and Slow (21-day) RSI
+    df["rsi_5"] = calculate_rsi(5)
+    df["rsi_21"] = calculate_rsi(21)
+
+    # RSI Momentum: Absolute distance between Fast and Slow
+    df["rsi_5_21_diff"] = (df["rsi_5"] - df["rsi_21"]).round(2)
 
     # --- 4. RVOL Calculations ---
     # Using replace(0, float('nan')) gracefully handles division-by-zero errors for halted/zero-volume days
@@ -299,6 +320,10 @@ def run_python_indicator_pipeline(db_url, target_date=None):
         df["volume"] / df["vol_sma_60"].replace(0, float("nan"))
     ).round(2)
 
+    df["rvol_ema_5_dod_diff"] = (
+        df["rvol_ema_5"] - df.groupby("ticker")["rvol_ema_5"].shift(1)
+    ).round(2)
+
     # --- 6. Filtering and Output ---
     cols_to_keep = [
         "ticker",
@@ -306,6 +331,9 @@ def run_python_indicator_pipeline(db_url, target_date=None):
         "gap_pct",
         "atr_14",
         "atr_14_pct",
+        "atr_5",
+        "atr_21",
+        "atr_5_21_dist_pct",
         "sma_50",
         "sma_50_dist_pct",
         "sma_200",
@@ -320,6 +348,9 @@ def run_python_indicator_pipeline(db_url, target_date=None):
         "bb_upper",
         "bb_lower",
         "rsi_14",
+        "rsi_5",
+        "rsi_21",
+        "rsi_5_21_diff",
         "vol_ema_5",
         "vol_sma_10",
         "vol_ema_21",
@@ -329,6 +360,7 @@ def run_python_indicator_pipeline(db_url, target_date=None):
         "rvol_sma_10",
         "rvol_ema_21",
         "rvol_sma_60",
+        "rvol_ema_5_dod_diff",
     ]
     final_df = df[cols_to_keep].copy()
 
@@ -371,7 +403,7 @@ if __name__ == "__main__":
     DB_URL = os.getenv("DB_URL")
 
     # --- Configuration ---
-    RESET_DATABASE = False
+    RESET_DATABASE = True
 
     if not API_KEY or not DB_URL:
         print("Error: Missing env variables.")

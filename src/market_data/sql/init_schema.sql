@@ -25,6 +25,9 @@ CREATE TABLE daily_indicators (
     gap_pct DOUBLE PRECISION,
     atr_14 DOUBLE PRECISION,
     atr_14_pct DOUBLE PRECISION,
+    atr_5 DOUBLE PRECISION,
+    atr_21 DOUBLE PRECISION,
+    atr_5_21_dist_pct DOUBLE PRECISION,
     sma_50 DOUBLE PRECISION,
     sma_50_dist_pct DOUBLE PRECISION,
     sma_200 DOUBLE PRECISION,
@@ -40,6 +43,9 @@ CREATE TABLE daily_indicators (
     
     -- Oscillators & Momentum
     rsi_14 DOUBLE PRECISION,
+    rsi_5 DOUBLE PRECISION,
+    rsi_21 DOUBLE PRECISION,
+    rsi_5_21_diff DOUBLE PRECISION,
     macd DOUBLE PRECISION,
     macd_signal DOUBLE PRECISION,
     macd_hist DOUBLE PRECISION,
@@ -56,6 +62,7 @@ CREATE TABLE daily_indicators (
     rvol_sma_10 DOUBLE PRECISION,
     rvol_ema_21 DOUBLE PRECISION,
     rvol_sma_60 DOUBLE PRECISION,
+    rvol_ema_5_dod_diff DOUBLE PRECISION,
 
     CONSTRAINT pk_ticker_indicator_date PRIMARY KEY (ticker, market_date)
 );
