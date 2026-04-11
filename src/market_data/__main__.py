@@ -95,7 +95,7 @@ def fetch_and_upload(target_date, db_url, api_key):
 
 def run_python_indicator_pipeline(db_url, target_date=None):
     """
-    Calculates ATR, SMAs, EMAs, Bollinger Bands, Gap %, RVOL, RSI, MACD, OBV, and ADX entirely in Pandas.
+    Calculates ATR, SMAs, EMAs, Bollinger Bands, Keltner Channels, Gap %, RVOL, RSI, MACD, OBV, and ADX entirely in Pandas.
     If target_date is set, runs in Daily Mode. If None, runs in Bulk Reset Mode.
     """
     engine = create_engine(db_url)
@@ -261,6 +261,21 @@ def run_python_indicator_pipeline(db_url, target_date=None):
     df["bb_upper"] = (sma_20 + (2 * std_20)).round(4)
     df["bb_lower"] = (sma_20 - (2 * std_20)).round(4)
 
+    # Keltner Channels (Modern: 20 EMA, 2x 10-period ATR)
+    atr_10 = (
+        grouped_tr.ewm(alpha=1 / 10, min_periods=10, adjust=False)
+        .mean()
+        .reset_index(level=0, drop=True)
+    )
+    df["kc_mid"] = (
+        grouped_close.ewm(span=20, adjust=False)
+        .mean()
+        .reset_index(level=0, drop=True)
+        .round(4)
+    )
+    df["kc_upper"] = (df["kc_mid"] + (2 * atr_10)).round(4)
+    df["kc_lower"] = (df["kc_mid"] - (2 * atr_10)).round(4)
+
     # Volume Baselines (Rounded to 2 decimals)
     df["vol_ema_5"] = (
         grouped_vol.ewm(span=5, adjust=False)
@@ -417,6 +432,9 @@ def run_python_indicator_pipeline(db_url, target_date=None):
         "bb_mid",
         "bb_upper",
         "bb_lower",
+        "kc_mid",
+        "kc_upper",
+        "kc_lower",
         "rsi_14",
         "rsi_5",
         "rsi_21",

@@ -44,6 +44,11 @@ CREATE TABLE daily_indicators (
     bb_upper DOUBLE PRECISION,
     bb_lower DOUBLE PRECISION,
     
+    -- Keltner Channels
+    kc_mid DOUBLE PRECISION,
+    kc_upper DOUBLE PRECISION,
+    kc_lower DOUBLE PRECISION,
+
     -- Oscillators & Momentum
     rsi_14 DOUBLE PRECISION,
     rsi_5 DOUBLE PRECISION,
