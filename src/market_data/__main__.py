@@ -126,12 +126,13 @@ def run_python_indicator_pipeline(db_url, target_date=None):
     # --- 1. True Range & Gap Calculation ---
     grouped_close = df.groupby("ticker")["close"]
     df["prev_close"] = grouped_close.shift(1)
-    
+
     # Gap % Calculation
     df["gap_pct"] = (
-        ((df["open"] - df["prev_close"]) / df["prev_close"].replace(0, float("nan"))) * 100
+        ((df["open"] - df["prev_close"]) / df["prev_close"].replace(0, float("nan")))
+        * 100
     ).round(4)
-    
+
     df["tr0"] = df["high"] - df["low"]
     df["tr1"] = (df["high"] - df["prev_close"]).abs()
     df["tr2"] = (df["low"] - df["prev_close"]).abs()
@@ -144,17 +145,17 @@ def run_python_indicator_pipeline(db_url, target_date=None):
 
     # Price Indicators (Rounded to 4 decimals for sub-penny accuracy)
     df["atr_14"] = (
-        grouped_tr.ewm(alpha=1/14, min_periods=14, adjust=False)
+        grouped_tr.ewm(alpha=1 / 14, min_periods=14, adjust=False)
         .mean()
         .reset_index(level=0, drop=True)
         .round(4)
     )
-    
+
     # Calculate ATR as a percentage of the close price
     df["atr_14_pct"] = (
         (df["atr_14"] / df["close"].replace(0, float("nan"))) * 100
     ).round(4)
-    
+
     # SMAs
     df["sma_50"] = (
         grouped_close.rolling(50, min_periods=50)
@@ -162,13 +163,22 @@ def run_python_indicator_pipeline(db_url, target_date=None):
         .reset_index(level=0, drop=True)
         .round(4)
     )
+
+    df["sma_50_dist_pct"] = (
+        ((df["close"] - df["sma_50"]) / df["sma_50"].replace(0, float("nan"))) * 100
+    ).round(2)
+
     df["sma_200"] = (
         grouped_close.rolling(200, min_periods=200)
         .mean()
         .reset_index(level=0, drop=True)
         .round(4)
     )
-    
+
+    df["sma_200_dist_pct"] = (
+        ((df["close"] - df["sma_200"]) / df["sma_200"].replace(0, float("nan"))) * 100
+    ).round(2)
+
     # EMAs
     df["ema_9"] = (
         grouped_close.ewm(span=9, adjust=False)
@@ -183,23 +193,36 @@ def run_python_indicator_pipeline(db_url, target_date=None):
         .round(4)
     )
 
+    df["ema_9_21_dist_pct"] = (
+        ((df["ema_9"] - df["ema_21"]) / df["ema_21"].replace(0, float("nan"))) * 100
+    ).round(2)
+
     # MACD (12 EMA - 26 EMA)
-    ema_12 = grouped_close.ewm(span=12, adjust=False).mean().reset_index(level=0, drop=True)
-    ema_26 = grouped_close.ewm(span=26, adjust=False).mean().reset_index(level=0, drop=True)
+    ema_12 = (
+        grouped_close.ewm(span=12, adjust=False).mean().reset_index(level=0, drop=True)
+    )
+    ema_26 = (
+        grouped_close.ewm(span=26, adjust=False).mean().reset_index(level=0, drop=True)
+    )
     df["macd"] = (ema_12 - ema_26).round(4)
-    
+
     # MACD Signal (9 EMA of MACD) and Histogram
     df["macd_signal"] = (
-        df.groupby("ticker")["macd"].ewm(span=9, adjust=False)
+        df.groupby("ticker")["macd"]
+        .ewm(span=9, adjust=False)
         .mean()
         .reset_index(level=0, drop=True)
         .round(4)
     )
     df["macd_hist"] = (df["macd"] - df["macd_signal"]).round(4)
-    
+
     # Bollinger Bands (20-period, 2 std dev)
-    sma_20 = grouped_close.rolling(20, min_periods=20).mean().reset_index(level=0, drop=True)
-    std_20 = grouped_close.rolling(20, min_periods=20).std().reset_index(level=0, drop=True)
+    sma_20 = (
+        grouped_close.rolling(20, min_periods=20).mean().reset_index(level=0, drop=True)
+    )
+    std_20 = (
+        grouped_close.rolling(20, min_periods=20).std().reset_index(level=0, drop=True)
+    )
     df["bb_mid"] = sma_20.round(4)
     df["bb_upper"] = (sma_20 + (2 * std_20)).round(4)
     df["bb_lower"] = (sma_20 - (2 * std_20)).round(4)
@@ -229,15 +252,33 @@ def run_python_indicator_pipeline(db_url, target_date=None):
         .reset_index(level=0, drop=True)
         .round(2)
     )
-    
+
+    df["vol_5_21_dist_pct"] = (
+        (
+            (df["vol_ema_5"] - df["vol_ema_21"])
+            / df["vol_ema_21"].replace(0, float("nan"))
+        )
+        * 100
+    ).round(2)
+
     # --- 3. RSI Calculation (Wilder's Smoothing) ---
     delta = df["close"] - df["prev_close"]
     up = delta.clip(lower=0)
     down = -1 * delta.clip(upper=0)
-    
-    roll_up = up.groupby(df['ticker']).ewm(alpha=1/14, min_periods=14, adjust=False).mean().reset_index(level=0, drop=True)
-    roll_down = down.groupby(df['ticker']).ewm(alpha=1/14, min_periods=14, adjust=False).mean().reset_index(level=0, drop=True)
-    
+
+    roll_up = (
+        up.groupby(df["ticker"])
+        .ewm(alpha=1 / 14, min_periods=14, adjust=False)
+        .mean()
+        .reset_index(level=0, drop=True)
+    )
+    roll_down = (
+        down.groupby(df["ticker"])
+        .ewm(alpha=1 / 14, min_periods=14, adjust=False)
+        .mean()
+        .reset_index(level=0, drop=True)
+    )
+
     rs = roll_up / roll_down
     df["rsi_14"] = 100.0 - (100.0 / (1.0 + rs))
     # Handle the division-by-zero edge case where a stock only goes up for 14 days straight
@@ -266,20 +307,24 @@ def run_python_indicator_pipeline(db_url, target_date=None):
         "atr_14",
         "atr_14_pct",
         "sma_50",
+        "sma_50_dist_pct",
         "sma_200",
+        "sma_200_dist_pct",
         "ema_9",
         "ema_21",
+        "ema_9_21_dist_pct",
         "macd",
         "macd_signal",
         "macd_hist",
         "bb_mid",
         "bb_upper",
         "bb_lower",
-        "rsi_14", 
+        "rsi_14",
         "vol_ema_5",
         "vol_sma_10",
         "vol_ema_21",
         "vol_sma_60",
+        "vol_5_21_dist_pct",
         "rvol_ema_5",
         "rvol_sma_10",
         "rvol_ema_21",
@@ -326,7 +371,7 @@ if __name__ == "__main__":
     DB_URL = os.getenv("DB_URL")
 
     # --- Configuration ---
-    RESET_DATABASE = True
+    RESET_DATABASE = False
 
     if not API_KEY or not DB_URL:
         print("Error: Missing env variables.")

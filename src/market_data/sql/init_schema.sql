@@ -26,9 +26,12 @@ CREATE TABLE daily_indicators (
     atr_14 DOUBLE PRECISION,
     atr_14_pct DOUBLE PRECISION,
     sma_50 DOUBLE PRECISION,
+    sma_50_dist_pct DOUBLE PRECISION,
     sma_200 DOUBLE PRECISION,
+    sma_200_dist_pct DOUBLE PRECISION,
     ema_9 DOUBLE PRECISION,
     ema_21 DOUBLE PRECISION,
+    ema_9_21_dist_pct DOUBLE PRECISION,
     
     -- Bollinger Bands
     bb_mid DOUBLE PRECISION,
@@ -46,6 +49,7 @@ CREATE TABLE daily_indicators (
     vol_sma_10 DOUBLE PRECISION,
     vol_ema_21 DOUBLE PRECISION,
     vol_sma_60 DOUBLE PRECISION,
+    vol_5_21_dist_pct DOUBLE PRECISION,
 
     -- Relative Volume (RVOL) Metrics
     rvol_ema_5 DOUBLE PRECISION,
