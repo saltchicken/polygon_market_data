@@ -339,13 +339,10 @@ def run_python_indicator_pipeline(db_url, target_date=None):
 
     if target_date:
         yesterday_obv_query = text("""
-            SELECT ticker, obv as prev_obv
+            SELECT DISTINCT ON (ticker) ticker, obv as prev_obv
             FROM daily_indicators
-            WHERE market_date = (
-                SELECT MAX(market_date) 
-                FROM daily_indicators 
-                WHERE market_date < CAST(:dt AS DATE)
-            )
+            WHERE market_date < CAST(:dt AS DATE)
+            ORDER BY ticker, market_date DESC
         """)
         prev_obv_df = pd.read_sql(
             yesterday_obv_query, engine, params={"dt": target_date}
