@@ -113,6 +113,24 @@ def fetch_and_upload(target_date, db_url, api_key):
     entire_market_data = get_entire_market_ohlcv(target_date, api_key)
     if entire_market_data is not None and not entire_market_data.empty:
         entire_market_data["market_date"] = pd.to_datetime(target_date).date()
+        
+        # Clean up data: drop invalid rows and remove duplicate tickers 
+        # (Polygon sometimes returns multiple entries for the same ticker, which crashes COPY)
+        entire_market_data = entire_market_data.dropna(subset=["ticker"])
+        entire_market_data = entire_market_data.drop_duplicates(subset=["ticker"])
+
+        # Ensure idempotency: Delete existing data for this date so re-runs don't fail 
+        # due to UniqueViolation constraints.
+        try:
+            engine = create_engine(db_url)
+            with engine.begin() as conn:
+                conn.execute(
+                    text("DELETE FROM daily_market_data WHERE market_date = :dt"),
+                    {"dt": target_date}
+                )
+        except Exception as e:
+            print(f"Warning: Could not clear existing data for {target_date}: {e}")
+
         upload_to_postgres(
             df=entire_market_data, table_name="daily_market_data", db_url=db_url
         )
