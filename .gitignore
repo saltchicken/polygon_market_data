@@ -2,4 +2,3 @@
 .venv
 *.egg-info
 *__pycache__
-training/
