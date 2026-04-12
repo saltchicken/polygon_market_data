@@ -424,6 +424,15 @@ def run_python_indicator_pipeline(db_url, target_date=None):
         df["rsi_14"] - grouped_ticker["rsi_14"].shift(1)
     ).round(2)
 
+    # --- NEW: Smoothed Velocity ---
+    df["volume_dod_sma_3"] = grouped_ticker["volume_dod_pct"].transform(
+        lambda x: x.rolling(3, min_periods=1).mean()
+    ).round(2)
+    
+    df["rsi_velocity_3d"] = grouped_ticker["rsi_14_dod_diff"].transform(
+        lambda x: x.rolling(3, min_periods=1).mean()
+    ).round(2)
+
     # Trend Acceleration: Difference in MACD Histogram
     df["macd_hist_dod_diff"] = (
         df["macd_hist"] - grouped_ticker["macd_hist"].shift(1)
@@ -471,8 +480,9 @@ def run_python_indicator_pipeline(db_url, target_date=None):
     def calculate_r_squared(y):
         if np.isnan(y).any():
             return np.nan
-        if np.std(y) == 0:
-            return 0.0 # Return 0 to avoid division by zero errors on flatlines
+        # FIXED: Account for floating-point inaccuracies near zero
+        if np.std(y) < 1e-8: 
+            return 0.0 
         x = np.arange(len(y))
         r = np.corrcoef(x, y)[0, 1]
         return r ** 2
@@ -556,6 +566,8 @@ def run_python_indicator_pipeline(db_url, target_date=None):
         "rsi_14_dod_diff",     
         "macd_hist_dod_diff",  
         "atr_14_dod_pct",
+        "volume_dod_sma_3",     # <--- Add smoothed volume to export
+        "rsi_velocity_3d",      # <--- Add smoothed RSI velocity to export
         # --- New Trajectory Metrics ---
         "close_slope_3d", "close_r2_3d",
         "close_slope_5d", "close_r2_5d",

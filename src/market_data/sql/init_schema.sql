@@ -89,6 +89,10 @@ CREATE TABLE daily_indicators (
     macd_hist_dod_diff DOUBLE PRECISION,
     atr_14_dod_pct DOUBLE PRECISION,
 
+    -- Smoothed Velocity Metrics
+    volume_dod_sma_3 DOUBLE PRECISION,
+    rsi_velocity_3d DOUBLE PRECISION,
+
     -- Trend Trajectory & Confidence (Slopes & R-Squared)
     close_slope_3d DOUBLE PRECISION,
     close_r2_3d DOUBLE PRECISION,
