@@ -561,11 +561,11 @@ if __name__ == "__main__":
         sys.exit(1)
 
     if RESET_DATABASE:
-        print("\n=== STARTING 1-YEAR DATABASE RESET ===")
+        print("\n=== STARTING 2-YEAR DATABASE RESET ===")
         init_database(DB_URL)
 
         end_date = datetime.today()
-        start_date = end_date - timedelta(days=365)
+        start_date = end_date - timedelta(days=730)
         dates_to_fetch = pd.bdate_range(start=start_date, end=end_date)
 
         print(f"\n[PHASE 1] Fetching {len(dates_to_fetch)} days of raw market data...")
