@@ -458,6 +458,48 @@ def run_python_indicator_pipeline(db_url, target_date=None):
     ).round(2)
 
 
+    # --- 6.5 Trend Trajectory (Linear Regression Slopes & R-Squared) ---
+    print("Calculating Linear Regression Slopes and R-Squared...")
+
+    def calculate_slope(y):
+        # np.polyfit fails if NaNs are present in the window
+        if np.isnan(y).any():
+            return np.nan
+        x = np.arange(len(y))
+        return np.polyfit(x, y, 1)[0]
+
+    def calculate_r_squared(y):
+        if np.isnan(y).any():
+            return np.nan
+        if np.std(y) == 0:
+            return 0.0 # Return 0 to avoid division by zero errors on flatlines
+        x = np.arange(len(y))
+        r = np.corrcoef(x, y)[0, 1]
+        return r ** 2
+
+    # We loop through our defined windows to keep the code DRY
+    windows = [3, 5, 10, 21]
+
+    for w in windows:
+        # Price (Close) Trajectory
+        df[f"close_slope_{w}d"] = grouped_ticker["close"].transform(
+            lambda s: s.rolling(window=w).apply(calculate_slope, raw=True)
+        ).round(4)
+        
+        df[f"close_r2_{w}d"] = grouped_ticker["close"].transform(
+            lambda s: s.rolling(window=w).apply(calculate_r_squared, raw=True)
+        ).round(4)
+        
+        # Momentum (RSI) Trajectory
+        df[f"rsi_14_slope_{w}d"] = grouped_ticker["rsi_14"].transform(
+            lambda s: s.rolling(window=w).apply(calculate_slope, raw=True)
+        ).round(4)
+        
+        df[f"rsi_14_r2_{w}d"] = grouped_ticker["rsi_14"].transform(
+            lambda s: s.rolling(window=w).apply(calculate_r_squared, raw=True)
+        ).round(4)
+
+
     # --- 7. Filtering and Output ---
     cols_to_keep = [
         "ticker",
@@ -466,8 +508,8 @@ def run_python_indicator_pipeline(db_url, target_date=None):
         "prev_close",
         "gap_pct",
         "price_change_dod_pct", 
-        "price_change_wow_pct", # <--- Added WoW Price
-        "price_change_mom_pct", # <--- Added MoM Price
+        "price_change_wow_pct", 
+        "price_change_mom_pct", 
         "open_to_close_pct",
         "atr_14",
         "atr_14_pct",
@@ -509,11 +551,20 @@ def run_python_indicator_pipeline(db_url, target_date=None):
         "rvol_sma_60",
         "rvol_ema_5_dod_diff",
         "volume_dod_pct",      
-        "volume_wow_pct",       # <--- Added WoW Volume
-        "volume_mom_pct",       # <--- Added MoM Volume
+        "volume_wow_pct",       
+        "volume_mom_pct",       
         "rsi_14_dod_diff",     
         "macd_hist_dod_diff",  
-        "atr_14_dod_pct"       
+        "atr_14_dod_pct",
+        # --- New Trajectory Metrics ---
+        "close_slope_3d", "close_r2_3d",
+        "close_slope_5d", "close_r2_5d",
+        "close_slope_10d", "close_r2_10d",
+        "close_slope_21d", "close_r2_21d",
+        "rsi_14_slope_3d", "rsi_14_r2_3d",
+        "rsi_14_slope_5d", "rsi_14_r2_5d",
+        "rsi_14_slope_10d", "rsi_14_r2_10d",
+        "rsi_14_slope_21d", "rsi_14_r2_21d"
     ]
     final_df = df[cols_to_keep].copy()
 
