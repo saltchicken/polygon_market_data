@@ -10,7 +10,7 @@ def fetch_data_for_analysis(db_url):
     engine = create_engine(db_url)
     
     query = text("""
-        SELECT *
+        SELECT ticker, market_date, close, rsi_5_21_diff, atr_14_slope_5d, rsi_14_slope_5d
         FROM daily_indicators
         WHERE market_date >= CURRENT_DATE - INTERVAL '2 years'
     """)
