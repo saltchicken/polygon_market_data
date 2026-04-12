@@ -509,6 +509,30 @@ def run_python_indicator_pipeline(db_url, target_date=None):
             lambda s: s.rolling(window=w).apply(calculate_r_squared, raw=True)
         ).round(4)
 
+        # OBV (Cumulative Volume) Trajectory
+        df[f"obv_slope_{w}d"] = grouped_ticker["obv"].transform(
+            lambda s: s.rolling(window=w).apply(calculate_slope, raw=True)
+        ).round(4)
+        df[f"obv_r2_{w}d"] = grouped_ticker["obv"].transform(
+            lambda s: s.rolling(window=w).apply(calculate_r_squared, raw=True)
+        ).round(4)
+
+        # MACD Histogram Trajectory
+        df[f"macd_hist_slope_{w}d"] = grouped_ticker["macd_hist"].transform(
+            lambda s: s.rolling(window=w).apply(calculate_slope, raw=True)
+        ).round(4)
+        df[f"macd_hist_r2_{w}d"] = grouped_ticker["macd_hist"].transform(
+            lambda s: s.rolling(window=w).apply(calculate_r_squared, raw=True)
+        ).round(4)
+
+        # Volatility (ATR) Trajectory
+        df[f"atr_14_slope_{w}d"] = grouped_ticker["atr_14"].transform(
+            lambda s: s.rolling(window=w).apply(calculate_slope, raw=True)
+        ).round(4)
+        df[f"atr_14_r2_{w}d"] = grouped_ticker["atr_14"].transform(
+            lambda s: s.rolling(window=w).apply(calculate_r_squared, raw=True)
+        ).round(4)
+
 
     # --- 7. Filtering and Output ---
     cols_to_keep = [
@@ -576,7 +600,23 @@ def run_python_indicator_pipeline(db_url, target_date=None):
         "rsi_14_slope_3d", "rsi_14_r2_3d",
         "rsi_14_slope_5d", "rsi_14_r2_5d",
         "rsi_14_slope_10d", "rsi_14_r2_10d",
-        "rsi_14_slope_21d", "rsi_14_r2_21d"
+        "rsi_14_slope_21d", "rsi_14_r2_21d",
+        
+        # --- New Trajectory Metrics (OBV, MACD, ATR) ---
+        "obv_slope_3d", "obv_r2_3d",
+        "obv_slope_5d", "obv_r2_5d",
+        "obv_slope_10d", "obv_r2_10d",
+        "obv_slope_21d", "obv_r2_21d",
+        
+        "macd_hist_slope_3d", "macd_hist_r2_3d",
+        "macd_hist_slope_5d", "macd_hist_r2_5d",
+        "macd_hist_slope_10d", "macd_hist_r2_10d",
+        "macd_hist_slope_21d", "macd_hist_r2_21d",
+        
+        "atr_14_slope_3d", "atr_14_r2_3d",
+        "atr_14_slope_5d", "atr_14_r2_5d",
+        "atr_14_slope_10d", "atr_14_r2_10d",
+        "atr_14_slope_21d", "atr_14_r2_21d"
     ]
     final_df = df[cols_to_keep].copy()
 

@@ -112,6 +112,34 @@ CREATE TABLE daily_indicators (
     rsi_14_slope_21d DOUBLE PRECISION,
     rsi_14_r2_21d DOUBLE PRECISION,
 
+    -- Advanced Trajectory Metrics (OBV, MACD Histogram, ATR)
+    obv_slope_3d DOUBLE PRECISION,
+    obv_r2_3d DOUBLE PRECISION,
+    obv_slope_5d DOUBLE PRECISION,
+    obv_r2_5d DOUBLE PRECISION,
+    obv_slope_10d DOUBLE PRECISION,
+    obv_r2_10d DOUBLE PRECISION,
+    obv_slope_21d DOUBLE PRECISION,
+    obv_r2_21d DOUBLE PRECISION,
+    
+    macd_hist_slope_3d DOUBLE PRECISION,
+    macd_hist_r2_3d DOUBLE PRECISION,
+    macd_hist_slope_5d DOUBLE PRECISION,
+    macd_hist_r2_5d DOUBLE PRECISION,
+    macd_hist_slope_10d DOUBLE PRECISION,
+    macd_hist_r2_10d DOUBLE PRECISION,
+    macd_hist_slope_21d DOUBLE PRECISION,
+    macd_hist_r2_21d DOUBLE PRECISION,
+    
+    atr_14_slope_3d DOUBLE PRECISION,
+    atr_14_r2_3d DOUBLE PRECISION,
+    atr_14_slope_5d DOUBLE PRECISION,
+    atr_14_r2_5d DOUBLE PRECISION,
+    atr_14_slope_10d DOUBLE PRECISION,
+    atr_14_r2_10d DOUBLE PRECISION,
+    atr_14_slope_21d DOUBLE PRECISION,
+    atr_14_r2_21d DOUBLE PRECISION,
+
     CONSTRAINT pk_ticker_indicator_date PRIMARY KEY (ticker, market_date)
 );
 
