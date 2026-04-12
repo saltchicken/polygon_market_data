@@ -1,18 +1,14 @@
 import os
 import pandas as pd
 import numpy as np
+import xgboost as xgb
 from sqlalchemy import create_engine, text
 from dotenv import load_dotenv
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score
 
 def fetch_data_for_analysis(db_url):
     print("Fetching data from the database...")
     engine = create_engine(db_url)
     
-    # We pull the last 2 years of data to have a statistically significant 
-    # sample without overloading memory.
     query = text("""
         SELECT *
         FROM daily_indicators
@@ -20,6 +16,12 @@ def fetch_data_for_analysis(db_url):
     """)
     
     df = pd.read_sql(query, engine)
+    
+    # MEMORY HACK: Downcast float64 to float32
+    print("Downcasting float64 columns to float32 to save RAM...")
+    float_cols = df.select_dtypes(include=['float64']).columns
+    df[float_cols] = df[float_cols].astype('float32')
+    
     return df
 
 def run_feature_analysis():
@@ -35,30 +37,26 @@ def run_feature_analysis():
         print("No data found.")
         return
 
-    print(f"Data loaded: {len(df)} rows. Preparing targets...")
+    print(f"Data loaded: {len(df)} rows. Preparing T+5 Swing Trade targets...")
 
     # 1. SORTING IS CRITICAL
-    # We must sort by ticker and date so our shift() operation applies to the correct days
     df = df.sort_values(by=['ticker', 'market_date']).reset_index(drop=True)
 
-    # 2. CREATE THE TARGET VARIABLE (Predicting TOMORROW)
-    # We shift the DoD percentage backwards by 1. 
-    # This aligns TODAY'S indicators with TOMORROW'S price change.
-    df['next_day_return'] = df.groupby('ticker')['price_change_dod_pct'].shift(-1)
+    # 2. CREATE THE TARGET VARIABLE (Predicting T+5)
+    df['future_5d_close'] = df.groupby('ticker')['close'].shift(-5)
+    df['future_5d_return_pct'] = ((df['future_5d_close'] - df['close']) / df['close'].replace(0, np.nan)) * 100
     
-    # Convert to Binary Classification: 1 if positive (Up day), 0 if negative/flat (Down day)
-    df['target_is_positive'] = (df['next_day_return'] > 0).astype(int)
+    # Convert to Binary Classification: 1 if the stock goes up by > 3% in 5 days
+    hurdle_rate = 3.0
+    df['target_is_positive'] = (df['future_5d_return_pct'] > hurdle_rate).astype(int)
 
     # 3. SELECT FEATURES
-    # Exclude non-predictive columns (ticker, date) and target/future columns
     exclude_cols = [
-        'ticker', 'market_date', 'next_day_return', 'target_is_positive', 
+        'ticker', 'market_date', 'target_is_positive', 'future_5d_close', 'future_5d_return_pct', 
         'price_change_dod_pct', 'open_to_close_pct', 'gap_pct', 'prev_close', 'close'
     ]
     features = [col for col in df.columns if col not in exclude_cols]
 
-    # Drop any rows with NaN values (mostly the most recent day since it has no 'tomorrow' yet, 
-    # plus the first 200 days of a stock that lack SMA_200)
     ml_df = df[features + ['target_is_positive']].dropna()
 
     X = ml_df[features]
@@ -66,42 +64,45 @@ def run_feature_analysis():
 
     print(f"Training on {len(X)} historical market days across all tickers...")
 
-    # 4. TRAIN THE RANDOM FOREST
-    # Max depth is limited to prevent overfitting on the noise of the stock market
-    rf = RandomForestClassifier(n_estimators=100, max_depth=5, random_state=42, n_jobs=-1)
-    rf.fit(X, y)
+    # 4. TRAIN XGBOOST WITH GPU ACCELERATION
+    print("Initializing GPU-Accelerated XGBoost...")
+    model = xgb.XGBClassifier(
+        n_estimators=100, 
+        max_depth=5, 
+        random_state=42,
+        tree_method='hist',  # Histogram binning drastically reduces RAM usage
+        device='cuda'        # Shifts computation to NVIDIA GPU
+    )
+    
+    model.fit(X, y)
 
     # 5. EXTRACT AND DISPLAY FEATURE IMPORTANCE
-    importances = rf.feature_importances_
+    importances = model.feature_importances_
     
-    # Pair feature names with their importance scores
     feature_importance_df = pd.DataFrame({
         'Feature': features,
         'Importance': importances
     }).sort_values(by='Importance', ascending=False).reset_index(drop=True)
 
-    print("\n" + "="*50)
-    print(" TOP 15 MOST PREDICTIVE FEATURES (RANDOM FOREST)")
-    print("="*50)
+    print("\n" + "="*60)
+    print(" TOP 15 MOST PREDICTIVE FEATURES (XGBOOST T+5 SWING TRADE)")
+    print("="*60)
     
     for index, row in feature_importance_df.head(15).iterrows():
-        # Format as percentage
-        print(f"{index + 1}. {row['Feature']:<25} {row['Importance']*100:.2f}%")
+        print(f"{index + 1}. {row['Feature']:<30} {row['Importance']*100:.2f}%")
 
-    print("\n" + "="*50)
+    print("\n" + "="*60)
     print(" TOP LINEAR CORRELATIONS (PEARSON)")
-    print("="*50)
-    # While Random forest captures non-linear relationships, 
-    # basic correlation shows simple directional relationships (-1 to 1)
+    print("="*60)
+    
     correlations = ml_df.corr()['target_is_positive'].drop('target_is_positive')
     correlations = correlations.sort_values(key=abs, ascending=False)
     
     for feature, corr_val in correlations.head(10).items():
         direction = "Positive" if corr_val > 0 else "Negative"
-        print(f"{feature:<25} {corr_val:+.4f} ({direction})")
+        print(f"{feature:<30} {corr_val:+.4f} ({direction})")
 
     print("\n(Note: In financial markets, correlations above 0.03 are considered significant!)")
-
 
 if __name__ == "__main__":
     run_feature_analysis()
