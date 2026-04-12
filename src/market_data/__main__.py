@@ -129,11 +129,11 @@ def run_python_indicator_pipeline(db_url, target_date=None):
 
     if target_date:
         print(f"\n[INDICATORS] Calculating for {target_date} using Pandas...")
-        # Daily Mode: Pull 300 days of history to give moving averages runway to calculate
+        # Daily Mode: Pull 400 days of history to give moving averages runway to calculate
         query = text("""
             SELECT ticker, market_date, open, high, low, close, volume
             FROM daily_market_data
-            WHERE market_date >= (CAST(:dt AS DATE) - INTERVAL '300 days')
+            WHERE market_date >= (CAST(:dt AS DATE) - INTERVAL '400 days')
               AND market_date <= CAST(:dt AS DATE)
         """)
         df = pd.read_sql(query, engine, params={"dt": target_date})
@@ -506,6 +506,9 @@ def run_python_indicator_pipeline(db_url, target_date=None):
 
     windows = [3, 5, 10, 21]
     metrics = ["close", "rsi_14", "obv", "macd_hist", "atr_14"]
+    
+    # Dictionary to collect new columns and prevent DataFrame fragmentation
+    new_columns = {}
 
     for w in windows:
         print(f"  -> Processing {w}d trajectories...")
@@ -527,7 +530,7 @@ def run_python_indicator_pipeline(db_url, target_date=None):
             
             # Nullify any calculations that rolled over boundaries
             slope = np.where(is_valid_window, slope, np.nan)
-            df[f"{col}_slope_{w}d"] = np.round(slope, 4)
+            new_columns[f"{col}_slope_{w}d"] = np.round(slope, 4)
 
             # --- Calculate R-Squared ---
             # Mathematically equivalent to np.corrcoef(x, y)[0, 1] ** 2
@@ -539,7 +542,10 @@ def run_python_indicator_pipeline(db_url, target_date=None):
             
             # Nullify boundary overlaps
             r2 = np.where(is_valid_window, r2, np.nan)
-            df[f"{col}_r2_{w}d"] = np.round(r2, 4)
+            new_columns[f"{col}_r2_{w}d"] = np.round(r2, 4)
+
+    # Attach all new trajectory columns to the main DataFrame at once
+    df = pd.concat([df, pd.DataFrame(new_columns, index=df.index)], axis=1)
 
     # Clean up the mathematical index
     df.drop(columns=['_idx'], inplace=True)
