@@ -248,37 +248,35 @@ def run_python_indicator_pipeline(db_url, target_date=None):
     df["obv_change"] = direction * df["volume"]
 
     if target_date:
+        # Fetch the most recent historical OBV and the exact date it occurred
         yesterday_obv_query = text("""
-            SELECT DISTINCT ON (ticker) ticker, obv as prev_obv
+            SELECT DISTINCT ON (ticker) ticker, market_date as anchor_date, obv as anchor_obv
             FROM daily_indicators
             WHERE market_date < CAST(:dt AS DATE)
             ORDER BY ticker, market_date DESC
         """)
-        prev_obv_df = pd.read_sql(
+        anchor_obv_df = pd.read_sql(
             yesterday_obv_query, engine, params={"dt": target_date}
         )
 
-        df = df.merge(prev_obv_df, on="ticker", how="left")
-        df["prev_obv"] = df["prev_obv"].fillna(0)
+        df = df.merge(anchor_obv_df, on="ticker", how="left")
 
-        # 1. Calculate a naive cumulative sum over the 400-day window
+        # 1. Calculate a naive cumulative sum over the available 400-day window
         df["naive_obv"] = df.groupby("ticker")["obv_change"].cumsum()
+
+        # 2. Find the exact row where our raw data date intersects the DB's latest indicator date
+        is_anchor = df["market_date"] == df["anchor_date"]
         
-        # 2. Get yesterday's naive OBV to find the offset difference
-        df["yesterday_naive_obv"] = df.groupby("ticker")["naive_obv"].shift(1).fillna(0)
+        # 3. Calculate the absolute offset specifically at that exact intersection anchor point
+        anchor_rows = df[is_anchor].copy()
+        anchor_rows["offset"] = anchor_rows["anchor_obv"] - anchor_rows["naive_obv"]
         
-        # 3. Calculate offset ONLY on target_date rows
-        is_target = df["market_date"].astype(str) == target_date
-        df.loc[is_target, "obv_offset"] = df.loc[is_target, "prev_obv"] - df.loc[is_target, "yesterday_naive_obv"]
-        
-        # 4. Broadcast the offset backward to all historical rows for each ticker
-        df["obv_offset"] = df.groupby("ticker")["obv_offset"].bfill().fillna(0)
-        
-        # 5. Calculate true continuous OBV
-        df["obv"] = df["naive_obv"] + df["obv_offset"]
-        
+        # 4. Seamlessly broadcast the offset to all rows for each ticker using map
+        offsets = anchor_rows.set_index("ticker")["offset"]
+        df["obv"] = df["naive_obv"] + df["ticker"].map(offsets).fillna(0)
+
         # Clean up temporary columns
-        df = df.drop(columns=["naive_obv", "yesterday_naive_obv", "obv_offset", "prev_obv"])
+        df = df.drop(columns=["naive_obv", "anchor_date", "anchor_obv"])
     else:
         df["obv"] = df.groupby("ticker")["obv_change"].cumsum()
 
