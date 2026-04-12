@@ -16,6 +16,7 @@ dependencies = [
     "pandas",
     "sqlalchemy",
     "psycopg2-binary",
+    "tqdm",
 ]
 
 [tool.setuptools.package-data]

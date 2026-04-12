@@ -1,6 +1,8 @@
 import os
 import sys
 import time
+import io
+from tqdm import tqdm
 import numpy as np
 import pandas as pd
 from datetime import datetime, timedelta
@@ -27,6 +29,36 @@ def init_database(db_url):
         print(f"Successfully initialized database schema.")
     except Exception as e:
         print(f"Database Initialization Error: {e}")
+
+def copy_to_sql_with_progress(df, table_name, engine, chunksize=100000):
+    """
+    Uses PostgreSQL's native COPY command which is 10-100x faster than standard pandas to_sql.
+    Includes a tqdm progress bar for monitoring.
+    """
+    raw_conn = engine.raw_connection()
+    try:
+        cursor = raw_conn.cursor()
+        with tqdm(total=len(df), desc=f"Uploading {table_name}", unit="rows") as pbar:
+            for i in range(0, len(df), chunksize):
+                chunk = df.iloc[i : i + chunksize]
+                buffer = io.StringIO()
+                # Use \N for nulls so Postgres COPY interprets them correctly
+                chunk.to_csv(buffer, index=False, header=False, na_rep='\\N')
+                buffer.seek(0)
+                
+                columns = ','.join([f'"{col}"' for col in chunk.columns])
+                sql = f"COPY {table_name} ({columns}) FROM STDIN WITH CSV NULL '\\N'"
+                cursor.copy_expert(sql, buffer)
+                
+                pbar.update(len(chunk))
+        
+        raw_conn.commit()
+        cursor.close()
+    except Exception as e:
+        raw_conn.rollback()
+        raise e
+    finally:
+        raw_conn.close()
 
 
 def get_entire_market_ohlcv(date, api_key):
@@ -69,12 +101,7 @@ def upload_to_postgres(df, table_name, db_url):
     """Uploads a pandas DataFrame to a PostgreSQL database."""
     try:
         engine = create_engine(db_url)
-        df.to_sql(name=table_name, con=engine, if_exists="append", index=False)
-        print(f"Uploaded {len(df)} rows to '{table_name}'.")
-    except IntegrityError:
-        print(
-            "Upload Skipped: Data for this date already exists (Primary Key constraint)."
-        )
+        copy_to_sql_with_progress(df, table_name, engine, chunksize=100000)
     except Exception as e:
         if "UniqueViolation" in str(e) or "duplicate key" in str(e):
             print("Upload Skipped: Data for this date already exists.")
@@ -495,16 +522,16 @@ def run_python_indicator_pipeline(db_url, target_date=None):
         df[f"close_slope_{w}d"] = grouped_ticker["close"].transform(
             lambda s: s.rolling(window=w).apply(calculate_slope, raw=True)
         ).round(4)
-        
+
         df[f"close_r2_{w}d"] = grouped_ticker["close"].transform(
             lambda s: s.rolling(window=w).apply(calculate_r_squared, raw=True)
         ).round(4)
-        
+
         # Momentum (RSI) Trajectory
         df[f"rsi_14_slope_{w}d"] = grouped_ticker["rsi_14"].transform(
             lambda s: s.rolling(window=w).apply(calculate_slope, raw=True)
         ).round(4)
-        
+
         df[f"rsi_14_r2_{w}d"] = grouped_ticker["rsi_14"].transform(
             lambda s: s.rolling(window=w).apply(calculate_r_squared, raw=True)
         ).round(4)
@@ -590,8 +617,9 @@ def run_python_indicator_pipeline(db_url, target_date=None):
         "rsi_14_dod_diff",     
         "macd_hist_dod_diff",  
         "atr_14_dod_pct",
-        "volume_dod_sma_3",     # <--- Add smoothed volume to export
-        "rsi_velocity_3d",      # <--- Add smoothed RSI velocity to export
+        "volume_dod_sma_3",
+        "rsi_velocity_3d",
+
         # --- New Trajectory Metrics ---
         "close_slope_3d", "close_r2_3d",
         "close_slope_5d", "close_r2_5d",
@@ -601,18 +629,18 @@ def run_python_indicator_pipeline(db_url, target_date=None):
         "rsi_14_slope_5d", "rsi_14_r2_5d",
         "rsi_14_slope_10d", "rsi_14_r2_10d",
         "rsi_14_slope_21d", "rsi_14_r2_21d",
-        
+
         # --- New Trajectory Metrics (OBV, MACD, ATR) ---
         "obv_slope_3d", "obv_r2_3d",
         "obv_slope_5d", "obv_r2_5d",
         "obv_slope_10d", "obv_r2_10d",
         "obv_slope_21d", "obv_r2_21d",
-        
+
         "macd_hist_slope_3d", "macd_hist_r2_3d",
         "macd_hist_slope_5d", "macd_hist_r2_5d",
         "macd_hist_slope_10d", "macd_hist_r2_10d",
         "macd_hist_slope_21d", "macd_hist_r2_21d",
-        
+
         "atr_14_slope_3d", "atr_14_r2_3d",
         "atr_14_slope_5d", "atr_14_r2_5d",
         "atr_14_slope_10d", "atr_14_r2_10d",
@@ -642,9 +670,7 @@ def run_python_indicator_pipeline(db_url, target_date=None):
         else:
             conn.execute(text("TRUNCATE TABLE daily_indicators"))
 
-    final_df.to_sql(
-        "daily_indicators", engine, if_exists="append", index=False, chunksize=20000
-    )
+    copy_to_sql_with_progress(final_df, "daily_indicators", engine)
     print("Indicators successfully updated!")
 
 
