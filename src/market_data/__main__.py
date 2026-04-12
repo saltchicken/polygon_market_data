@@ -688,8 +688,8 @@ if __name__ == "__main__":
     DB_URL = os.getenv("DB_URL")
 
     # --- Configuration ---
-    RESET_DATABASE = False           # True = Wipes everything, re-downloads 2 years of data
-    RECALCULATE_INDICATORS = True    # True = Re-runs the math on existing raw data 
+    RESET_DATABASE = True           # True = Wipes everything, re-downloads 2 years of data
+    RECALCULATE_INDICATORS = False    # True = Re-runs the math on existing raw data 
 
     if not API_KEY or not DB_URL:
         print("Error: Missing env variables.")
