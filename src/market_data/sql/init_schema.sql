@@ -24,7 +24,7 @@ CREATE TABLE daily_indicators (
     -- Price & Trend Indicators
     prev_close DOUBLE PRECISION,
     gap_pct DOUBLE PRECISION,
-    price_change_pct DOUBLE PRECISION,
+    price_change_dod_pct DOUBLE PRECISION,
     open_to_close_pct DOUBLE PRECISION,
     atr_14 DOUBLE PRECISION,
     atr_14_pct DOUBLE PRECISION,
@@ -76,7 +76,13 @@ CREATE TABLE daily_indicators (
     rvol_sma_10 DOUBLE PRECISION,
     rvol_ema_21 DOUBLE PRECISION,
     rvol_sma_60 DOUBLE PRECISION,
+    
+    -- Day-Over-Day (DoD) Rate of Change Metrics
     rvol_ema_5_dod_diff DOUBLE PRECISION,
+    volume_dod_pct DOUBLE PRECISION,
+    rsi_14_dod_diff DOUBLE PRECISION,
+    macd_hist_dod_diff DOUBLE PRECISION,
+    atr_14_dod_pct DOUBLE PRECISION,
 
     CONSTRAINT pk_ticker_indicator_date PRIMARY KEY (ticker, market_date)
 );

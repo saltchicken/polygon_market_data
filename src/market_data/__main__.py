@@ -121,12 +121,14 @@ def run_python_indicator_pipeline(db_url, target_date=None):
         print("No data found to calculate indicators.")
         return
 
-    # Ensure chronologically sorted for moving averages
+    # Ensure chronologically sorted for moving averages and shift operations
     df = df.sort_values(by=["ticker", "market_date"]).reset_index(drop=True)
 
+    # Base grouping object for performance
+    grouped_ticker = df.groupby("ticker")
+
     # --- 1. True Range & Gap Calculation ---
-    grouped_close = df.groupby("ticker")["close"]
-    df["prev_close"] = grouped_close.shift(1)
+    df["prev_close"] = grouped_ticker["close"].shift(1)
 
     # Gap % Calculation
     df["gap_pct"] = (
@@ -134,8 +136,8 @@ def run_python_indicator_pipeline(db_url, target_date=None):
         * 100
     ).round(4)
 
-    # Price Change % Calculation (Close vs Prev Close)
-    df["price_change_pct"] = (
+    # Price Change % Calculation (Close vs Prev Close) -> Updated to DoD
+    df["price_change_dod_pct"] = (
         ((df["close"] - df["prev_close"]) / df["prev_close"].replace(0, float("nan")))
         * 100
     ).round(4)
@@ -151,11 +153,11 @@ def run_python_indicator_pipeline(db_url, target_date=None):
     df["true_range"] = df[["tr0", "tr1", "tr2"]].max(axis=1)
 
     # --- 2. Baselines Calculation ---
-    # Using groupby directly with rolling/ewm, then stripping the ticker index back out
     grouped_tr = df.groupby("ticker")["true_range"]
     grouped_vol = df.groupby("ticker")["volume"]
+    grouped_close = df.groupby("ticker")["close"]
 
-    # Price Indicators (Rounded to 4 decimals for sub-penny accuracy)
+    # Price Indicators
     df["atr_14"] = (
         grouped_tr.ewm(alpha=1 / 14, min_periods=14, adjust=False)
         .mean()
@@ -163,12 +165,10 @@ def run_python_indicator_pipeline(db_url, target_date=None):
         .round(4)
     )
 
-    # Calculate ATR as a percentage of the close price
     df["atr_14_pct"] = (
         (df["atr_14"] / df["close"].replace(0, float("nan"))) * 100
     ).round(4)
 
-    # Short-term ATR (5-day)
     df["atr_5"] = (
         grouped_tr.ewm(alpha=1 / 5, min_periods=5, adjust=False)
         .mean()
@@ -176,7 +176,6 @@ def run_python_indicator_pipeline(db_url, target_date=None):
         .round(4)
     )
 
-    # Longer-term ATR (21-day)
     df["atr_21"] = (
         grouped_tr.ewm(alpha=1 / 21, min_periods=21, adjust=False)
         .mean()
@@ -184,7 +183,6 @@ def run_python_indicator_pipeline(db_url, target_date=None):
         .round(4)
     )
 
-    # Volatility Momentum: Distance between Fast and Slow ATR
     df["atr_5_21_dist_pct"] = (
         ((df["atr_5"] - df["atr_21"]) / df["atr_21"].replace(0, float("nan"))) * 100
     ).round(2)
@@ -230,7 +228,7 @@ def run_python_indicator_pipeline(db_url, target_date=None):
         ((df["ema_9"] - df["ema_21"]) / df["ema_21"].replace(0, float("nan"))) * 100
     ).round(2)
 
-    # MACD (12 EMA - 26 EMA)
+    # MACD
     ema_12 = (
         grouped_close.ewm(span=12, adjust=False).mean().reset_index(level=0, drop=True)
     )
@@ -239,7 +237,6 @@ def run_python_indicator_pipeline(db_url, target_date=None):
     )
     df["macd"] = (ema_12 - ema_26).round(4)
 
-    # MACD Signal (9 EMA of MACD) and Histogram
     df["macd_signal"] = (
         df.groupby("ticker")["macd"]
         .ewm(span=9, adjust=False)
@@ -249,7 +246,7 @@ def run_python_indicator_pipeline(db_url, target_date=None):
     )
     df["macd_hist"] = (df["macd"] - df["macd_signal"]).round(4)
 
-    # Bollinger Bands (20-period, 2 std dev)
+    # Bollinger Bands
     sma_20 = (
         grouped_close.rolling(20, min_periods=20).mean().reset_index(level=0, drop=True)
     )
@@ -260,7 +257,7 @@ def run_python_indicator_pipeline(db_url, target_date=None):
     df["bb_upper"] = (sma_20 + (2 * std_20)).round(4)
     df["bb_lower"] = (sma_20 - (2 * std_20)).round(4)
 
-    # Keltner Channels (Modern: 20 EMA, 2x 10-period ATR)
+    # Keltner Channels
     atr_10 = (
         grouped_tr.ewm(alpha=1 / 10, min_periods=10, adjust=False)
         .mean()
@@ -275,7 +272,7 @@ def run_python_indicator_pipeline(db_url, target_date=None):
     df["kc_upper"] = (df["kc_mid"] + (2 * atr_10)).round(4)
     df["kc_lower"] = (df["kc_mid"] - (2 * atr_10)).round(4)
 
-    # Volume Baselines (Rounded to 2 decimals)
+    # Volume Baselines
     df["vol_ema_5"] = (
         grouped_vol.ewm(span=5, adjust=False)
         .mean()
@@ -309,12 +306,11 @@ def run_python_indicator_pipeline(db_url, target_date=None):
         * 100
     ).round(2)
 
-    # --- 3. RSI Calculations (Wilder's Smoothing) ---
+    # --- 3. RSI Calculations ---
     delta = df["close"] - df["prev_close"]
     up = delta.clip(lower=0)
     down = -1 * delta.clip(upper=0)
 
-    # Function to calculate RSI to avoid repeating code
     def calculate_rsi(periods):
         roll_up = (
             up.groupby(df["ticker"])
@@ -332,24 +328,16 @@ def run_python_indicator_pipeline(db_url, target_date=None):
         rsi = 100.0 - (100.0 / (1.0 + rs))
         return rsi.mask(roll_down == 0, 100.0).round(2)
 
-    # Standard 14-day RSI
     df["rsi_14"] = calculate_rsi(14)
-
-    # Fast (5-day) and Slow (21-day) RSI
     df["rsi_5"] = calculate_rsi(5)
     df["rsi_21"] = calculate_rsi(21)
-
-    # RSI Momentum: Absolute distance between Fast and Slow
     df["rsi_5_21_diff"] = (df["rsi_5"] - df["rsi_21"]).round(2)
 
     # --- 4. Cumulative & Trend Strength (OBV, ADX) ---
-
-    # OBV Calculation
     direction = np.sign(df["close"] - df["prev_close"]).fillna(0)
     df["obv_change"] = direction * df["volume"]
 
     if target_date:
-        # For daily updates, fetch yesterday's OBV from the database to anchor today's cumulative sum
         yesterday_obv_query = text("""
             SELECT ticker, obv as prev_obv
             FROM daily_indicators
@@ -366,17 +354,15 @@ def run_python_indicator_pipeline(db_url, target_date=None):
         df = df.merge(prev_obv_df, on="ticker", how="left")
         df["prev_obv"] = df["prev_obv"].fillna(0)
 
-        # We only need the accurate OBV for the target_date row
         is_target = df["market_date"].astype(str) == target_date
-        df["obv"] = 0.0  # dummy for older historical rows in the daily 300-day calc
+        df["obv"] = 0.0  
         df.loc[is_target, "obv"] = (
             df.loc[is_target, "prev_obv"] + df.loc[is_target, "obv_change"]
         )
     else:
-        # Bulk mode: Accumulate from the start of the dataset
         df["obv"] = df.groupby("ticker")["obv_change"].cumsum()
 
-    # ADX Calculation (Wilder's 14-Period)
+    # ADX Calculation
     grouped_high = df.groupby("ticker")["high"]
     grouped_low = df.groupby("ticker")["low"]
 
@@ -389,7 +375,6 @@ def run_python_indicator_pipeline(db_url, target_date=None):
     df["plus_dm"] = np.where((up_move > down_move) & (up_move > 0), up_move, 0.0)
     df["minus_dm"] = np.where((down_move > up_move) & (down_move > 0), down_move, 0.0)
 
-    # Wilder's Smoothing for Directional Movement (alpha=1/14)
     smoothed_plus_dm = (
         df.groupby("ticker")["plus_dm"]
         .ewm(alpha=1 / 14, min_periods=14, adjust=False)
@@ -403,11 +388,8 @@ def run_python_indicator_pipeline(db_url, target_date=None):
         .reset_index(level=0, drop=True)
     )
 
-    # The True Range denominator natively equals df["atr_14"] since ATR is the smoothed True Range!
     df["plus_di"] = (100 * smoothed_plus_dm / df["atr_14"].replace(0, np.nan)).round(2)
-    df["minus_di"] = (100 * smoothed_minus_dm / df["atr_14"].replace(0, np.nan)).round(
-        2
-    )
+    df["minus_di"] = (100 * smoothed_minus_dm / df["atr_14"].replace(0, np.nan)).round(2)
 
     df["dx"] = 100 * (
         np.abs(df["plus_di"] - df["minus_di"])
@@ -422,31 +404,48 @@ def run_python_indicator_pipeline(db_url, target_date=None):
     )
 
     # --- 5. RVOL Calculations ---
-    # Using replace(0, float('nan')) gracefully handles division-by-zero errors for halted/zero-volume days
-    df["rvol_ema_5"] = (df["volume"] / df["vol_ema_5"].replace(0, float("nan"))).round(
-        2
-    )
-    df["rvol_sma_10"] = (
-        df["volume"] / df["vol_sma_10"].replace(0, float("nan"))
-    ).round(2)
-    df["rvol_ema_21"] = (
-        df["volume"] / df["vol_ema_21"].replace(0, float("nan"))
-    ).round(2)
-    df["rvol_sma_60"] = (
-        df["volume"] / df["vol_sma_60"].replace(0, float("nan"))
-    ).round(2)
+    df["rvol_ema_5"] = (df["volume"] / df["vol_ema_5"].replace(0, float("nan"))).round(2)
+    df["rvol_sma_10"] = (df["volume"] / df["vol_sma_10"].replace(0, float("nan"))).round(2)
+    df["rvol_ema_21"] = (df["volume"] / df["vol_ema_21"].replace(0, float("nan"))).round(2)
+    df["rvol_sma_60"] = (df["volume"] / df["vol_sma_60"].replace(0, float("nan"))).round(2)
 
+    # --- 6. Day-Over-Day (DoD) Rate of Change Calculations ---
+    
+    # RVOL DoD Shift
     df["rvol_ema_5_dod_diff"] = (
-        df["rvol_ema_5"] - df.groupby("ticker")["rvol_ema_5"].shift(1)
+        df["rvol_ema_5"] - grouped_ticker["rvol_ema_5"].shift(1)
     ).round(2)
 
-    # --- 6. Filtering and Output ---
+    # Volume Surge: Percentage change in raw volume compared to yesterday
+    df["volume_dod_pct"] = (
+        ((df["volume"] - grouped_ticker["volume"].shift(1)) 
+        / grouped_ticker["volume"].shift(1).replace(0, float("nan"))) * 100
+    ).round(2)
+
+    # Momentum Velocity: Absolute difference in RSI
+    df["rsi_14_dod_diff"] = (
+        df["rsi_14"] - grouped_ticker["rsi_14"].shift(1)
+    ).round(2)
+
+    # Trend Acceleration: Difference in MACD Histogram
+    df["macd_hist_dod_diff"] = (
+        df["macd_hist"] - grouped_ticker["macd_hist"].shift(1)
+    ).round(4)
+
+    # Volatility Expansion: Percentage change in ATR
+    df["atr_14_dod_pct"] = (
+        ((df["atr_14"] - grouped_ticker["atr_14"].shift(1)) 
+        / grouped_ticker["atr_14"].shift(1).replace(0, float("nan"))) * 100
+    ).round(2)
+
+
+    # --- 7. Filtering and Output ---
     cols_to_keep = [
         "ticker",
         "market_date",
         "gap_pct",
         "prev_close",
-        "price_change_pct",
+        "price_change_dod_pct", # <--- UPDATED
         "open_to_close_pct",
         "atr_14",
         "atr_14_pct",
@@ -487,14 +486,16 @@ def run_python_indicator_pipeline(db_url, target_date=None):
         "rvol_ema_21",
         "rvol_sma_60",
         "rvol_ema_5_dod_diff",
+        "volume_dod_pct",      
+        "rsi_14_dod_diff",     
+        "macd_hist_dod_diff",  
+        "atr_14_dod_pct"       
     ]
     final_df = df[cols_to_keep].copy()
 
     if target_date:
-        # In daily mode, isolate only the row for the target date to insert
         final_df = final_df[final_df["market_date"].astype(str) == target_date]
 
-    # Drop rows that don't have enough history to calculate any baselines yet
     final_df = final_df.dropna(
         subset=["atr_14", "sma_50", "sma_200", "rvol_ema_5", "rsi_14"], how="all"
     )
@@ -507,16 +508,13 @@ def run_python_indicator_pipeline(db_url, target_date=None):
 
     with engine.begin() as conn:
         if target_date:
-            # Delete existing row for today to prevent duplicates
             conn.execute(
                 text("DELETE FROM daily_indicators WHERE market_date = :dt"),
                 {"dt": target_date},
             )
         else:
-            # Bulk mode, clear the whole table before inserting the massive dataframe
             conn.execute(text("TRUNCATE TABLE daily_indicators"))
 
-    # chunksize ensures we don't overwhelm Postgres memory on bulk backfills
     final_df.to_sql(
         "daily_indicators", engine, if_exists="append", index=False, chunksize=20000
     )
