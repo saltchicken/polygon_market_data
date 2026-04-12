@@ -409,7 +409,7 @@ def run_python_indicator_pipeline(db_url, target_date=None):
     df["rvol_ema_21"] = (df["volume"] / df["vol_ema_21"].replace(0, float("nan"))).round(2)
     df["rvol_sma_60"] = (df["volume"] / df["vol_sma_60"].replace(0, float("nan"))).round(2)
 
-    # --- 6. Day-Over-Day (DoD) Rate of Change Calculations ---
+    # --- 6. DoD, WoW, and MoM Rate of Change Calculations ---
     
     # RVOL DoD Shift
     df["rvol_ema_5_dod_diff"] = (
@@ -437,15 +437,40 @@ def run_python_indicator_pipeline(db_url, target_date=None):
         ((df["atr_14"] - grouped_ticker["atr_14"].shift(1)) 
         / grouped_ticker["atr_14"].shift(1).replace(0, float("nan"))) * 100
     ).round(2)
+    
+    # WoW (Week-over-Week) Tracking - approx 5 trading days
+    df["price_change_wow_pct"] = (
+        ((df["close"] - grouped_ticker["close"].shift(5)) 
+         / grouped_ticker["close"].shift(5).replace(0, float("nan"))) * 100
+    ).round(4)
+    
+    df["volume_wow_pct"] = (
+        ((df["volume"] - grouped_ticker["volume"].shift(5)) 
+         / grouped_ticker["volume"].shift(5).replace(0, float("nan"))) * 100
+    ).round(2)
+
+    # MoM (Month-over-Month) Tracking - approx 21 trading days
+    df["price_change_mom_pct"] = (
+        ((df["close"] - grouped_ticker["close"].shift(21)) 
+         / grouped_ticker["close"].shift(21).replace(0, float("nan"))) * 100
+    ).round(4)
+    
+    df["volume_mom_pct"] = (
+        ((df["volume"] - grouped_ticker["volume"].shift(21)) 
+         / grouped_ticker["volume"].shift(21).replace(0, float("nan"))) * 100
+    ).round(2)
 
 
     # --- 7. Filtering and Output ---
     cols_to_keep = [
         "ticker",
         "market_date",
-        "gap_pct",
+        "close",
         "prev_close",
-        "price_change_dod_pct", # <--- UPDATED
+        "gap_pct",
+        "price_change_dod_pct", 
+        "price_change_wow_pct", # <--- Added WoW Price
+        "price_change_mom_pct", # <--- Added MoM Price
         "open_to_close_pct",
         "atr_14",
         "atr_14_pct",
@@ -487,6 +512,8 @@ def run_python_indicator_pipeline(db_url, target_date=None):
         "rvol_sma_60",
         "rvol_ema_5_dod_diff",
         "volume_dod_pct",      
+        "volume_wow_pct",       # <--- Added WoW Volume
+        "volume_mom_pct",       # <--- Added MoM Volume
         "rsi_14_dod_diff",     
         "macd_hist_dod_diff",  
         "atr_14_dod_pct"       

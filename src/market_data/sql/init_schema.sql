@@ -22,9 +22,12 @@ CREATE TABLE daily_indicators (
     market_date DATE NOT NULL,
     
     -- Price & Trend Indicators
+    close DOUBLE PRECISION,
     prev_close DOUBLE PRECISION,
     gap_pct DOUBLE PRECISION,
     price_change_dod_pct DOUBLE PRECISION,
+    price_change_wow_pct DOUBLE PRECISION,
+    price_change_mom_pct DOUBLE PRECISION,
     open_to_close_pct DOUBLE PRECISION,
     atr_14 DOUBLE PRECISION,
     atr_14_pct DOUBLE PRECISION,
@@ -77,9 +80,11 @@ CREATE TABLE daily_indicators (
     rvol_ema_21 DOUBLE PRECISION,
     rvol_sma_60 DOUBLE PRECISION,
     
-    -- Day-Over-Day (DoD) Rate of Change Metrics
+    -- Day-Over-Day (DoD), WoW, and MoM Rate of Change Metrics
     rvol_ema_5_dod_diff DOUBLE PRECISION,
     volume_dod_pct DOUBLE PRECISION,
+    volume_wow_pct DOUBLE PRECISION,
+    volume_mom_pct DOUBLE PRECISION,
     rsi_14_dod_diff DOUBLE PRECISION,
     macd_hist_dod_diff DOUBLE PRECISION,
     atr_14_dod_pct DOUBLE PRECISION,
