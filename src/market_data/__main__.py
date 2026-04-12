@@ -495,70 +495,54 @@ def run_python_indicator_pipeline(db_url, target_date=None):
 
 
     # --- 6.5 Trend Trajectory (Linear Regression Slopes & R-Squared) ---
-    print("Calculating Linear Regression Slopes and R-Squared...")
+    print("\nCalculating Linear Regression Slopes and R-Squared (Vectorized Engine)...")
 
-    def calculate_slope(y):
-        # np.polyfit fails if NaNs are present in the window
-        if np.isnan(y).any():
-            return np.nan
-        x = np.arange(len(y))
-        return np.polyfit(x, y, 1)[0]
+    # Mathematically, the slope of a linear regression with x=[0, 1, ..., w-1] is:
+    # m = Cov(x, y) / Var(x)
+    # The Variance of x=[0, 1, ..., w-1] is a mathematically known constant: w(w+1)/12.
+    # To handle the DataFrame without slow loops or cross-boundary contamination, 
+    # we create a rolling grouping index that natively resets per ticker.
+    df['_idx'] = df.groupby('ticker').cumcount()
 
-    def calculate_r_squared(y):
-        if np.isnan(y).any():
-            return np.nan
-        # FIXED: Account for floating-point inaccuracies near zero
-        if np.std(y) < 1e-8: 
-            return 0.0 
-        x = np.arange(len(y))
-        r = np.corrcoef(x, y)[0, 1]
-        return r ** 2
-
-    # We loop through our defined windows to keep the code DRY
     windows = [3, 5, 10, 21]
+    metrics = ["close", "rsi_14", "obv", "macd_hist", "atr_14"]
 
     for w in windows:
-        # Price (Close) Trajectory
-        df[f"close_slope_{w}d"] = grouped_ticker["close"].transform(
-            lambda s: s.rolling(window=w).apply(calculate_slope, raw=True)
-        ).round(4)
+        print(f"  -> Processing {w}d trajectories...")
+        
+        # Calculate sample variance for x = [0, 1, ... w-1]
+        var_x = (w * (w + 1)) / 12.0
+        
+        # Valid windows MUST not cross the ticker boundary
+        is_valid_window = df['_idx'] >= (w - 1)
+        
+        for col in metrics:
+            # We track standard deviation to prevent zero-division artifacts (flat lines) in R-Squared
+            roll_std = df[col].rolling(w).std()
 
-        df[f"close_r2_{w}d"] = grouped_ticker["close"].transform(
-            lambda s: s.rolling(window=w).apply(calculate_r_squared, raw=True)
-        ).round(4)
+            # --- Calculate Slope ---
+            # min_periods=w ensures that ANY NaN in the period results safely in NaN
+            cov_xy = df[col].rolling(w, min_periods=w).cov(df['_idx'])
+            slope = cov_xy / var_x
+            
+            # Nullify any calculations that rolled over boundaries
+            slope = np.where(is_valid_window, slope, np.nan)
+            df[f"{col}_slope_{w}d"] = np.round(slope, 4)
 
-        # Momentum (RSI) Trajectory
-        df[f"rsi_14_slope_{w}d"] = grouped_ticker["rsi_14"].transform(
-            lambda s: s.rolling(window=w).apply(calculate_slope, raw=True)
-        ).round(4)
+            # --- Calculate R-Squared ---
+            # Mathematically equivalent to np.corrcoef(x, y)[0, 1] ** 2
+            r = df[col].rolling(w, min_periods=w).corr(df['_idx'])
+            r2 = r ** 2
+            
+            # Handle float inaccuracies near zero (if std is functionally 0, the fit is perfectly flat but R2 equation fractures)
+            r2 = np.where(roll_std < 1e-8, 0.0, r2)
+            
+            # Nullify boundary overlaps
+            r2 = np.where(is_valid_window, r2, np.nan)
+            df[f"{col}_r2_{w}d"] = np.round(r2, 4)
 
-        df[f"rsi_14_r2_{w}d"] = grouped_ticker["rsi_14"].transform(
-            lambda s: s.rolling(window=w).apply(calculate_r_squared, raw=True)
-        ).round(4)
-
-        # OBV (Cumulative Volume) Trajectory
-        df[f"obv_slope_{w}d"] = grouped_ticker["obv"].transform(
-            lambda s: s.rolling(window=w).apply(calculate_slope, raw=True)
-        ).round(4)
-        df[f"obv_r2_{w}d"] = grouped_ticker["obv"].transform(
-            lambda s: s.rolling(window=w).apply(calculate_r_squared, raw=True)
-        ).round(4)
-
-        # MACD Histogram Trajectory
-        df[f"macd_hist_slope_{w}d"] = grouped_ticker["macd_hist"].transform(
-            lambda s: s.rolling(window=w).apply(calculate_slope, raw=True)
-        ).round(4)
-        df[f"macd_hist_r2_{w}d"] = grouped_ticker["macd_hist"].transform(
-            lambda s: s.rolling(window=w).apply(calculate_r_squared, raw=True)
-        ).round(4)
-
-        # Volatility (ATR) Trajectory
-        df[f"atr_14_slope_{w}d"] = grouped_ticker["atr_14"].transform(
-            lambda s: s.rolling(window=w).apply(calculate_slope, raw=True)
-        ).round(4)
-        df[f"atr_14_r2_{w}d"] = grouped_ticker["atr_14"].transform(
-            lambda s: s.rolling(window=w).apply(calculate_r_squared, raw=True)
-        ).round(4)
+    # Clean up the mathematical index
+    df.drop(columns=['_idx'], inplace=True)
 
 
     # --- 7. Filtering and Output ---
@@ -620,7 +604,7 @@ def run_python_indicator_pipeline(db_url, target_date=None):
         "volume_dod_sma_3",
         "rsi_velocity_3d",
 
-        # --- New Trajectory Metrics ---
+        # --- Trajectory Metrics ---
         "close_slope_3d", "close_r2_3d",
         "close_slope_5d", "close_r2_5d",
         "close_slope_10d", "close_r2_10d",
@@ -630,7 +614,7 @@ def run_python_indicator_pipeline(db_url, target_date=None):
         "rsi_14_slope_10d", "rsi_14_r2_10d",
         "rsi_14_slope_21d", "rsi_14_r2_21d",
 
-        # --- New Trajectory Metrics (OBV, MACD, ATR) ---
+        # --- Trajectory Metrics (OBV, MACD, ATR) ---
         "obv_slope_3d", "obv_r2_3d",
         "obv_slope_5d", "obv_r2_5d",
         "obv_slope_10d", "obv_r2_10d",
@@ -718,7 +702,7 @@ if __name__ == "__main__":
     else:
         # Standard Daily Run
         TARGET_DATE = datetime.today().strftime("%Y-%m-%d")
-        print(f"\n=== RUNNING DAILY UPDATE FOR {TARGET_DATE} ===")
+        print(f"\n=== RUNNING DAILY update FOR {TARGET_DATE} ===")
 
         fetch_and_upload(TARGET_DATE, DB_URL, API_KEY)
         run_python_indicator_pipeline(DB_URL, target_date=TARGET_DATE)
