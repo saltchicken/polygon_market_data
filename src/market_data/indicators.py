@@ -3,6 +3,7 @@ import pandas as pd
 from sqlalchemy import create_engine, text
 from .database import copy_to_sql_with_progress
 
+
 def run_python_indicator_pipeline(db_url, target_date=None):
     """
     Calculates ATR, SMAs, EMAs, Bollinger Bands, Keltner Channels, Gap %, RVOL, RSI, MACD, OBV, and ADX entirely in Pandas.
@@ -265,12 +266,12 @@ def run_python_indicator_pipeline(db_url, target_date=None):
         df["naive_obv"] = df.groupby("ticker")["obv_change"].cumsum()
 
         # 2. Find the exact row where our raw data date intersects the DB's latest indicator date
-        is_anchor = df["market_date"] == df["anchor_date"]
-        
+        is_anchor = df["market_date"].astype(str) == df["anchor_date"].astype(str)
+
         # 3. Calculate the absolute offset specifically at that exact intersection anchor point
         anchor_rows = df[is_anchor].copy()
         anchor_rows["offset"] = anchor_rows["anchor_obv"] - anchor_rows["naive_obv"]
-        
+
         # 4. Seamlessly broadcast the offset to all rows for each ticker using map
         offsets = anchor_rows.set_index("ticker")["offset"]
         df["obv"] = df["naive_obv"] + df["ticker"].map(offsets).fillna(0)
@@ -307,7 +308,9 @@ def run_python_indicator_pipeline(db_url, target_date=None):
     )
 
     df["plus_di"] = (100 * smoothed_plus_dm / df["atr_14"].replace(0, np.nan)).round(2)
-    df["minus_di"] = (100 * smoothed_minus_dm / df["atr_14"].replace(0, np.nan)).round(2)
+    df["minus_di"] = (100 * smoothed_minus_dm / df["atr_14"].replace(0, np.nan)).round(
+        2
+    )
 
     df["dx"] = 100 * (
         np.abs(df["plus_di"] - df["minus_di"])
@@ -322,13 +325,21 @@ def run_python_indicator_pipeline(db_url, target_date=None):
     )
 
     # --- 5. RVOL Calculations ---
-    df["rvol_ema_5"] = (df["volume"] / df["vol_ema_5"].replace(0, float("nan"))).round(2)
-    df["rvol_sma_10"] = (df["volume"] / df["vol_sma_10"].replace(0, float("nan"))).round(2)
-    df["rvol_ema_21"] = (df["volume"] / df["vol_ema_21"].replace(0, float("nan"))).round(2)
-    df["rvol_sma_60"] = (df["volume"] / df["vol_sma_60"].replace(0, float("nan"))).round(2)
+    df["rvol_ema_5"] = (df["volume"] / df["vol_ema_5"].replace(0, float("nan"))).round(
+        2
+    )
+    df["rvol_sma_10"] = (
+        df["volume"] / df["vol_sma_10"].replace(0, float("nan"))
+    ).round(2)
+    df["rvol_ema_21"] = (
+        df["volume"] / df["vol_ema_21"].replace(0, float("nan"))
+    ).round(2)
+    df["rvol_sma_60"] = (
+        df["volume"] / df["vol_sma_60"].replace(0, float("nan"))
+    ).round(2)
 
     # --- 6. DoD, WoW, and MoM Rate of Change Calculations ---
-    
+
     # RVOL DoD Shift
     df["rvol_ema_5_dod_diff"] = (
         df["rvol_ema_5"] - grouped_ticker["rvol_ema_5"].shift(1)
@@ -336,23 +347,28 @@ def run_python_indicator_pipeline(db_url, target_date=None):
 
     # Volume Surge: Percentage change in raw volume compared to yesterday
     df["volume_dod_pct"] = (
-        ((df["volume"] - grouped_ticker["volume"].shift(1)) 
-        / grouped_ticker["volume"].shift(1).replace(0, float("nan"))) * 100
+        (
+            (df["volume"] - grouped_ticker["volume"].shift(1))
+            / grouped_ticker["volume"].shift(1).replace(0, float("nan"))
+        )
+        * 100
     ).round(2)
 
     # Momentum Velocity: Absolute difference in RSI
-    df["rsi_14_dod_diff"] = (
-        df["rsi_14"] - grouped_ticker["rsi_14"].shift(1)
-    ).round(2)
+    df["rsi_14_dod_diff"] = (df["rsi_14"] - grouped_ticker["rsi_14"].shift(1)).round(2)
 
     # --- NEW: Smoothed Velocity ---
-    df["volume_dod_sma_3"] = grouped_ticker["volume_dod_pct"].transform(
-        lambda x: x.rolling(3, min_periods=1).mean()
-    ).round(2)
-    
-    df["rsi_velocity_3d"] = grouped_ticker["rsi_14_dod_diff"].transform(
-        lambda x: x.rolling(3, min_periods=1).mean()
-    ).round(2)
+    df["volume_dod_sma_3"] = (
+        grouped_ticker["volume_dod_pct"]
+        .transform(lambda x: x.rolling(3, min_periods=1).mean())
+        .round(2)
+    )
+
+    df["rsi_velocity_3d"] = (
+        grouped_ticker["rsi_14_dod_diff"]
+        .transform(lambda x: x.rolling(3, min_periods=1).mean())
+        .round(2)
+    )
 
     # Trend Acceleration: Difference in MACD Histogram
     df["macd_hist_dod_diff"] = (
@@ -361,30 +377,45 @@ def run_python_indicator_pipeline(db_url, target_date=None):
 
     # Volatility Expansion: Percentage change in ATR
     df["atr_14_dod_pct"] = (
-        ((df["atr_14"] - grouped_ticker["atr_14"].shift(1)) 
-        / grouped_ticker["atr_14"].shift(1).replace(0, float("nan"))) * 100
+        (
+            (df["atr_14"] - grouped_ticker["atr_14"].shift(1))
+            / grouped_ticker["atr_14"].shift(1).replace(0, float("nan"))
+        )
+        * 100
     ).round(2)
-    
+
     # WoW (Week-over-Week) Tracking - approx 5 trading days
     df["price_change_wow_pct"] = (
-        ((df["close"] - grouped_ticker["close"].shift(5)) 
-         / grouped_ticker["close"].shift(5).replace(0, float("nan"))) * 100
+        (
+            (df["close"] - grouped_ticker["close"].shift(5))
+            / grouped_ticker["close"].shift(5).replace(0, float("nan"))
+        )
+        * 100
     ).round(4)
-    
+
     df["volume_wow_pct"] = (
-        ((df["volume"] - grouped_ticker["volume"].shift(5)) 
-         / grouped_ticker["volume"].shift(5).replace(0, float("nan"))) * 100
+        (
+            (df["volume"] - grouped_ticker["volume"].shift(5))
+            / grouped_ticker["volume"].shift(5).replace(0, float("nan"))
+        )
+        * 100
     ).round(2)
 
     # MoM (Month-over-Month) Tracking - approx 21 trading days
     df["price_change_mom_pct"] = (
-        ((df["close"] - grouped_ticker["close"].shift(21)) 
-         / grouped_ticker["close"].shift(21).replace(0, float("nan"))) * 100
+        (
+            (df["close"] - grouped_ticker["close"].shift(21))
+            / grouped_ticker["close"].shift(21).replace(0, float("nan"))
+        )
+        * 100
     ).round(4)
-    
+
     df["volume_mom_pct"] = (
-        ((df["volume"] - grouped_ticker["volume"].shift(21)) 
-         / grouped_ticker["volume"].shift(21).replace(0, float("nan"))) * 100
+        (
+            (df["volume"] - grouped_ticker["volume"].shift(21))
+            / grouped_ticker["volume"].shift(21).replace(0, float("nan"))
+        )
+        * 100
     ).round(2)
 
     # --- 6.5 Trend Trajectory (Linear Regression Slopes & R-Squared) ---
@@ -393,46 +424,46 @@ def run_python_indicator_pipeline(db_url, target_date=None):
     # Mathematically, the slope of a linear regression with x=[0, 1, ..., w-1] is:
     # m = Cov(x, y) / Var(x)
     # The Variance of x=[0, 1, ..., w-1] is a mathematically known constant: w(w+1)/12.
-    # To handle the DataFrame without slow loops or cross-boundary contamination, 
+    # To handle the DataFrame without slow loops or cross-boundary contamination,
     # we create a rolling grouping index that natively resets per ticker.
-    df['_idx'] = df.groupby('ticker').cumcount()
+    df["_idx"] = df.groupby("ticker").cumcount()
 
     windows = [3, 5, 10, 21]
     metrics = ["close", "rsi_14", "obv", "macd_hist", "atr_14"]
-    
+
     # Dictionary to collect new columns and prevent DataFrame fragmentation
     new_columns = {}
 
     for w in windows:
         print(f"  -> Processing {w}d trajectories...")
-        
+
         # Calculate sample variance for x = [0, 1, ... w-1]
         var_x = (w * (w + 1)) / 12.0
-        
+
         # Valid windows MUST not cross the ticker boundary
-        is_valid_window = df['_idx'] >= (w - 1)
-        
+        is_valid_window = df["_idx"] >= (w - 1)
+
         for col in metrics:
             # We track standard deviation to prevent zero-division artifacts (flat lines) in R-Squared
             roll_std = df[col].rolling(w).std()
 
             # --- Calculate Slope ---
             # min_periods=w ensures that ANY NaN in the period results safely in NaN
-            cov_xy = df[col].rolling(w, min_periods=w).cov(df['_idx'])
+            cov_xy = df[col].rolling(w, min_periods=w).cov(df["_idx"])
             slope = cov_xy / var_x
-            
+
             # Nullify any calculations that rolled over boundaries
             slope = np.where(is_valid_window, slope, np.nan)
             new_columns[f"{col}_slope_{w}d"] = np.round(slope, 4)
 
             # --- Calculate R-Squared ---
             # Mathematically equivalent to np.corrcoef(x, y)[0, 1] ** 2
-            r = df[col].rolling(w, min_periods=w).corr(df['_idx'])
-            r2 = r ** 2
-            
+            r = df[col].rolling(w, min_periods=w).corr(df["_idx"])
+            r2 = r**2
+
             # Handle float inaccuracies near zero (if std is functionally 0, the fit is perfectly flat but R2 equation fractures)
             r2 = np.where(roll_std < 1e-8, 0.0, r2)
-            
+
             # Nullify boundary overlaps
             r2 = np.where(is_valid_window, r2, np.nan)
             new_columns[f"{col}_r2_{w}d"] = np.round(r2, 4)
@@ -441,8 +472,7 @@ def run_python_indicator_pipeline(db_url, target_date=None):
     df = pd.concat([df, pd.DataFrame(new_columns, index=df.index)], axis=1)
 
     # Clean up the mathematical index
-    df.drop(columns=['_idx'], inplace=True)
-
+    df.drop(columns=["_idx"], inplace=True)
 
     # --- 7. Filtering and Output ---
     cols_to_keep = [
@@ -451,9 +481,9 @@ def run_python_indicator_pipeline(db_url, target_date=None):
         "close",
         "prev_close",
         "gap_pct",
-        "price_change_dod_pct", 
-        "price_change_wow_pct", 
-        "price_change_mom_pct", 
+        "price_change_dod_pct",
+        "price_change_wow_pct",
+        "price_change_mom_pct",
         "open_to_close_pct",
         "atr_14",
         "atr_14_pct",
@@ -494,40 +524,56 @@ def run_python_indicator_pipeline(db_url, target_date=None):
         "rvol_ema_21",
         "rvol_sma_60",
         "rvol_ema_5_dod_diff",
-        "volume_dod_pct",      
-        "volume_wow_pct",       
-        "volume_mom_pct",       
-        "rsi_14_dod_diff",     
-        "macd_hist_dod_diff",  
+        "volume_dod_pct",
+        "volume_wow_pct",
+        "volume_mom_pct",
+        "rsi_14_dod_diff",
+        "macd_hist_dod_diff",
         "atr_14_dod_pct",
         "volume_dod_sma_3",
         "rsi_velocity_3d",
-
         # --- Trajectory Metrics ---
-        "close_slope_3d", "close_r2_3d",
-        "close_slope_5d", "close_r2_5d",
-        "close_slope_10d", "close_r2_10d",
-        "close_slope_21d", "close_r2_21d",
-        "rsi_14_slope_3d", "rsi_14_r2_3d",
-        "rsi_14_slope_5d", "rsi_14_r2_5d",
-        "rsi_14_slope_10d", "rsi_14_r2_10d",
-        "rsi_14_slope_21d", "rsi_14_r2_21d",
-
+        "close_slope_3d",
+        "close_r2_3d",
+        "close_slope_5d",
+        "close_r2_5d",
+        "close_slope_10d",
+        "close_r2_10d",
+        "close_slope_21d",
+        "close_r2_21d",
+        "rsi_14_slope_3d",
+        "rsi_14_r2_3d",
+        "rsi_14_slope_5d",
+        "rsi_14_r2_5d",
+        "rsi_14_slope_10d",
+        "rsi_14_r2_10d",
+        "rsi_14_slope_21d",
+        "rsi_14_r2_21d",
         # --- Trajectory Metrics (OBV, MACD, ATR) ---
-        "obv_slope_3d", "obv_r2_3d",
-        "obv_slope_5d", "obv_r2_5d",
-        "obv_slope_10d", "obv_r2_10d",
-        "obv_slope_21d", "obv_r2_21d",
-
-        "macd_hist_slope_3d", "macd_hist_r2_3d",
-        "macd_hist_slope_5d", "macd_hist_r2_5d",
-        "macd_hist_slope_10d", "macd_hist_r2_10d",
-        "macd_hist_slope_21d", "macd_hist_r2_21d",
-
-        "atr_14_slope_3d", "atr_14_r2_3d",
-        "atr_14_slope_5d", "atr_14_r2_5d",
-        "atr_14_slope_10d", "atr_14_r2_10d",
-        "atr_14_slope_21d", "atr_14_r2_21d"
+        "obv_slope_3d",
+        "obv_r2_3d",
+        "obv_slope_5d",
+        "obv_r2_5d",
+        "obv_slope_10d",
+        "obv_r2_10d",
+        "obv_slope_21d",
+        "obv_r2_21d",
+        "macd_hist_slope_3d",
+        "macd_hist_r2_3d",
+        "macd_hist_slope_5d",
+        "macd_hist_r2_5d",
+        "macd_hist_slope_10d",
+        "macd_hist_r2_10d",
+        "macd_hist_slope_21d",
+        "macd_hist_r2_21d",
+        "atr_14_slope_3d",
+        "atr_14_r2_3d",
+        "atr_14_slope_5d",
+        "atr_14_r2_5d",
+        "atr_14_slope_10d",
+        "atr_14_r2_10d",
+        "atr_14_slope_21d",
+        "atr_14_r2_21d",
     ]
     final_df = df[cols_to_keep].copy()
 

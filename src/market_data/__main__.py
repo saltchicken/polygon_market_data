@@ -15,8 +15,8 @@ if __name__ == "__main__":
     DB_URL = os.getenv("DB_URL")
 
     # --- Configuration ---
-    RESET_DATABASE = False             # True = Wipes everything, re-downloads 2 years of data
-    RECALCULATE_INDICATORS = True    # True = Re-runs the math on existing raw data 
+    RESET_DATABASE = True  # True = Wipes everything, re-downloads 2 years of data
+    RECALCULATE_INDICATORS = False  # True = Re-runs the math on existing raw data
 
     if not API_KEY or not DB_URL:
         print("Error: Missing env variables.")
@@ -42,10 +42,10 @@ if __name__ == "__main__":
         run_python_indicator_pipeline(DB_URL, target_date=None)
 
         print("\n=== RESET COMPLETE ===")
-        
+
     elif RECALCULATE_INDICATORS:
         print("\n=== RECALCULATING ALL INDICATORS FROM EXISTING RAW DATA ===")
-        # Because target_date is None, this will automatically truncate the 
+        # Because target_date is None, this will automatically truncate the
         # daily_indicators table before bulk-inserting the new calculations.
         run_python_indicator_pipeline(DB_URL, target_date=None)
         print("\n=== RECALCULATION COMPLETE ===")
