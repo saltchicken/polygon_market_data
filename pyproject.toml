@@ -13,6 +13,7 @@ license = { text = "MIT" }
 dependencies = [
     "polygon-api-client", 
     "python-dotenv",
+    "numpy",
     "pandas",
     "sqlalchemy",
     "psycopg2-binary",
